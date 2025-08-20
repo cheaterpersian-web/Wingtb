@@ -144,9 +144,11 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             use_rsi_filter=not cfg.use_rsi_filter,
             use_ema_filter=cfg.use_ema_filter,
         )
-        await grid_service.reconfigure(new_cfg)
-        await query.message.answer("وضعیت RSI تغییر کرد", reply_markup=_strategy_menu_kb())
-        await query.answer()
+        await query.answer("در حال به‌روزرسانی…")
+        async def apply():
+            await grid_service.reconfigure(new_cfg)
+            await query.message.answer("وضعیت RSI تغییر کرد", reply_markup=_strategy_menu_kb())
+        asyncio.create_task(apply())
 
     @dp.callback_query(F.data == "toggle_ema")
     async def cb_toggle_ema(query: CallbackQuery):
@@ -167,9 +169,11 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             use_rsi_filter=cfg.use_rsi_filter,
             use_ema_filter=not cfg.use_ema_filter,
         )
-        await grid_service.reconfigure(new_cfg)
-        await query.message.answer("وضعیت EMA تغییر کرد", reply_markup=_strategy_menu_kb())
-        await query.answer()
+        await query.answer("در حال به‌روزرسانی…")
+        async def apply():
+            await grid_service.reconfigure(new_cfg)
+            await query.message.answer("وضعیت EMA تغییر کرد", reply_markup=_strategy_menu_kb())
+        asyncio.create_task(apply())
 
     @dp.callback_query(F.data == "toggle_step")
     async def cb_toggle_step(query: CallbackQuery):
@@ -191,9 +195,11 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             use_rsi_filter=cfg.use_rsi_filter,
             use_ema_filter=cfg.use_ema_filter,
         )
-        await grid_service.reconfigure(new_cfg)
-        await query.message.answer(f"گام به {('درصدی' if new_step=='percent' else 'ثابت')} تغییر کرد", reply_markup=_strategy_menu_kb())
-        await query.answer()
+        await query.answer("در حال به‌روزرسانی…")
+        async def apply():
+            await grid_service.reconfigure(new_cfg)
+            await query.message.answer(f"گام به {('درصدی' if new_step=='percent' else 'ثابت')} تغییر کرد", reply_markup=_strategy_menu_kb())
+        asyncio.create_task(apply())
 
     @dp.callback_query(F.data == "edit_params")
     async def cb_edit_params(query: CallbackQuery):
