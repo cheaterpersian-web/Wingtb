@@ -371,14 +371,17 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
         if grid_service is None:
             await message.answer("Service not available")
             return
-        auto_cfg = _compute_auto_cfg()
-        await grid_service.reconfigure(auto_cfg)
-        b = exec_gateway.balances()
-        await message.answer("Grid started (auto 12 levels)\n" + _format_strategy(auto_cfg))
-        await message.answer(
-            f"USDT={b['USDT']:.2f}, ASSET_QTY={b['ASSET_QTY']:.6f}, PRICE={b['ASSET_PRICE']:.2f}\n"
-            f"EQUITY={b['EQUITY']:.2f}"
-        )
+        try:
+            auto_cfg = _compute_auto_cfg()
+            await grid_service.reconfigure(auto_cfg)
+            b = exec_gateway.balances()
+            await message.answer("Grid started (auto 12 levels)\n" + _format_strategy(auto_cfg))
+            await message.answer(
+                f"USDT={b['USDT']:.2f}, ASSET_QTY={b['ASSET_QTY']:.6f}, PRICE={b['ASSET_PRICE']:.2f}\n"
+                f"EQUITY={b['EQUITY']:.2f}"
+            )
+        except Exception as e:
+            await message.answer(f"❌ خطا در روشن‌کردن گرید: {e}")
 
     @dp.callback_query(F.data == "grid_on_btn")
     async def cb_grid_on(query: CallbackQuery):
@@ -387,14 +390,17 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             return
         await query.answer("در حال روشن کردن…")
         async def run():
-            auto_cfg = _compute_auto_cfg()
-            await grid_service.reconfigure(auto_cfg)
-            b = exec_gateway.balances()
-            await query.message.answer("Grid started (auto 12 levels)\n" + _format_strategy(auto_cfg))
-            await query.message.answer(
-                f"USDT={b['USDT']:.2f}, ASSET_QTY={b['ASSET_QTY']:.6f}, PRICE={b['ASSET_PRICE']:.2f}\n"
-                f"EQUITY={b['EQUITY']:.2f}"
-            )
+            try:
+                auto_cfg = _compute_auto_cfg()
+                await grid_service.reconfigure(auto_cfg)
+                b = exec_gateway.balances()
+                await query.message.answer("Grid started (auto 12 levels)\n" + _format_strategy(auto_cfg))
+                await query.message.answer(
+                    f"USDT={b['USDT']:.2f}, ASSET_QTY={b['ASSET_QTY']:.6f}, PRICE={b['ASSET_PRICE']:.2f}\n"
+                    f"EQUITY={b['EQUITY']:.2f}"
+                )
+            except Exception as e:
+                await query.message.answer(f"❌ خطا در روشن‌کردن گرید: {e}")
         asyncio.create_task(run())
 
     @dp.message(Command("grid_off"))
