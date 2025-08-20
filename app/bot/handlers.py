@@ -228,7 +228,11 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
         await query.answer("در حال به‌روزرسانی…")
         async def apply():
             await grid_service.reconfigure(new_cfg)
-            await query.message.answer("وضعیت RSI تغییر کرد", reply_markup=_strategy_menu_kb())
+            # try to update the same message UI
+            try:
+                await query.message.edit_text(_format_strategy(), reply_markup=_strategy_menu_kb())
+            except Exception:
+                await query.message.answer("وضعیت RSI تغییر کرد", reply_markup=_strategy_menu_kb())
         asyncio.create_task(apply())
 
     @dp.callback_query(F.data == "toggle_ema")
@@ -253,7 +257,10 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
         await query.answer("در حال به‌روزرسانی…")
         async def apply():
             await grid_service.reconfigure(new_cfg)
-            await query.message.answer("وضعیت EMA تغییر کرد", reply_markup=_strategy_menu_kb())
+            try:
+                await query.message.edit_text(_format_strategy(), reply_markup=_strategy_menu_kb())
+            except Exception:
+                await query.message.answer("وضعیت EMA تغییر کرد", reply_markup=_strategy_menu_kb())
         asyncio.create_task(apply())
 
     @dp.callback_query(F.data == "toggle_step")
@@ -279,7 +286,10 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
         await query.answer("در حال به‌روزرسانی…")
         async def apply():
             await grid_service.reconfigure(new_cfg)
-            await query.message.answer(f"گام به {('درصدی' if new_step=='percent' else 'ثابت')} تغییر کرد", reply_markup=_strategy_menu_kb())
+            try:
+                await query.message.edit_text(_format_strategy(), reply_markup=_strategy_menu_kb())
+            except Exception:
+                await query.message.answer(f"گام به {('درصدی' if new_step=='percent' else 'ثابت')} تغییر کرد", reply_markup=_strategy_menu_kb())
         asyncio.create_task(apply())
 
     @dp.callback_query(F.data == "edit_params")
