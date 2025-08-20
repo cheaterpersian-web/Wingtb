@@ -146,6 +146,12 @@ class GridService:
                         self._fast_ema_series = compute_ema(closes_list, 12)
                         self._slow_ema_series = compute_ema(closes_list, 26)
                         self._rsi_series = compute_rsi(closes_list, 14)
+                        fast_ema = self._fast_ema_series[-1] if self._fast_ema_series else None
+                        slow_ema = self._slow_ema_series[-1] if self._slow_ema_series else None
+                        rsi = self._rsi_series[-1] if self._rsi_series else None
+                        intents = self.strategy.on_tick(px, rsi=rsi, fast_ema=fast_ema, slow_ema=slow_ema)
+                        for intent in intents:
+                            await self.exec.place_order(self.cfg.pair, intent.side, intent.qty, px)
                 except Exception:
                     pass
                 await asyncio.sleep(15)
