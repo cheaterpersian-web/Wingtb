@@ -402,6 +402,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             return
         try:
             auto_cfg = _compute_auto_cfg()
+            await message.answer("در حال روشن کردن…")
             await grid_service.reconfigure(auto_cfg)
             kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="نمایش داشبورد", callback_data="show_dashboard")]])
             await message.answer("گرید روشن شد ✅ (حالت خودکار ۱۲ سطح)", reply_markup=kb)
@@ -414,6 +415,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             await query.answer("Service not available", show_alert=True)
             return
         await query.answer("در حال روشن کردن…")
+        await query.message.answer("در حال روشن کردن…")
         async def run():
             try:
                 auto_cfg = _compute_auto_cfg()
