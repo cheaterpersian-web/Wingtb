@@ -339,15 +339,42 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
         pending_actions.pop(uid, None)
         await message.answer("تنظیمات به‌روزرسانی شد. /strategy")
 
+    def _compute_auto_cfg() -> ServiceConfig:
+        cfg = grid_service.cfg  # type: ignore[attr-defined]
+        # Defaults: 6 per side (12 total)
+        grid_per_side = 6
+        # Target step percent around 0.5%
+        step_pct = 0.005
+        last_px = getattr(exec_gateway, 'last_price', 0.0)
+        if last_px <= 0:
+            last_px = 1.0
+        lower = last_px * (1.0 - step_pct * grid_per_side)
+        upper = last_px * (1.0 + step_pct * grid_per_side)
+        usdt_bal = exec_gateway.usdt_balance if hasattr(exec_gateway, 'usdt_balance') else 100.0
+        base_usdt = max(5.0, min(usdt_bal * 0.001, 100.0))
+        return ServiceConfig(
+            pair=cfg.pair,
+            timeframe=cfg.timeframe,
+            fee_bps=cfg.fee_bps,
+            slippage_bps=cfg.slippage_bps,
+            base_order_usdt=base_usdt,
+            lower_price=lower,
+            upper_price=upper,
+            grid_count=grid_per_side,
+            step_type="percent",
+            use_rsi_filter=cfg.use_rsi_filter,
+            use_ema_filter=cfg.use_ema_filter,
+        )
+
     @dp.message(Command("grid_on"))
     async def cmd_grid_on(message: Message):
         if grid_service is None:
             await message.answer("Service not available")
             return
-        await grid_service.start()
-        # Immediately show status and strategy to confirm it's running
+        auto_cfg = _compute_auto_cfg()
+        await grid_service.reconfigure(auto_cfg)
         b = exec_gateway.balances()
-        await message.answer("Grid started\n" + _format_strategy())
+        await message.answer("Grid started (auto 12 levels)\n" + _format_strategy(auto_cfg))
         await message.answer(
             f"USDT={b['USDT']:.2f}, ASSET_QTY={b['ASSET_QTY']:.6f}, PRICE={b['ASSET_PRICE']:.2f}\n"
             f"EQUITY={b['EQUITY']:.2f}"
@@ -360,9 +387,10 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             return
         await query.answer("در حال روشن کردن…")
         async def run():
-            await grid_service.start()
+            auto_cfg = _compute_auto_cfg()
+            await grid_service.reconfigure(auto_cfg)
             b = exec_gateway.balances()
-            await query.message.answer("Grid started\n" + _format_strategy())
+            await query.message.answer("Grid started (auto 12 levels)\n" + _format_strategy(auto_cfg))
             await query.message.answer(
                 f"USDT={b['USDT']:.2f}, ASSET_QTY={b['ASSET_QTY']:.6f}, PRICE={b['ASSET_PRICE']:.2f}\n"
                 f"EQUITY={b['EQUITY']:.2f}"

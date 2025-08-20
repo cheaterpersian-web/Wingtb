@@ -172,7 +172,7 @@ class GridService:
             GridParams(
                 lower_price=new_cfg.lower_price,
                 upper_price=new_cfg.upper_price,
-                grid_count=new_cfg.grid_count,
+                grid_count=new_cfg.grid_count,  # per side (auto 6)
                 step_type=new_cfg.step_type,
                 base_order_usdt=new_cfg.base_order_usdt,
                 use_rsi_filter=new_cfg.use_rsi_filter,
