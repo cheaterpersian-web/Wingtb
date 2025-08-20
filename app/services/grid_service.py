@@ -12,7 +12,7 @@ import numpy as np
 
 from app.core.indicators.ema import compute_ema
 from app.core.indicators.rsi import compute_rsi
-from app.core.strategy.grid import GridParams, GridStrategy
+from app.core.strategy.grid import GridParams, GridStrategy, GridIntent
 from app.core.storage.db import SQLiteRepo
 from app.datafeed.adapters import IDataFeed
 from app.execution.paper_exec import PaperExecutionGateway

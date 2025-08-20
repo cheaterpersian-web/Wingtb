@@ -368,19 +368,16 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
         pending_actions.pop(uid, None)
         await message.answer("تنظیمات به‌روزرسانی شد. /strategy")
 
-    def _compute_auto_cfg() -> ServiceConfig:
+    async def _compute_auto_cfg_async() -> ServiceConfig:
         cfg = grid_service.cfg  # type: ignore[attr-defined]
-        # Defaults: 6 per side (12 total)
-        grid_per_side = 6
-        # Target step percent around 0.5%
+        grid_per_side = 6  # 12 total
         step_pct = 0.005
         last_px = getattr(exec_gateway, 'last_price', 0.0)
-        # Fallback to REST now_price if engine has no price yet
-        try:
-            if not last_px and grid_service is not None:
-                last_px = float(asyncio.get_event_loop().run_until_complete(grid_service.datafeed.now_price(cfg.pair)))  # type: ignore[attr-defined]
-        except Exception:
-            pass
+        if not last_px and grid_service is not None:
+            try:
+                last_px = float(await grid_service.datafeed.now_price(cfg.pair))  # type: ignore[attr-defined]
+            except Exception:
+                last_px = 0.0
         if last_px <= 0:
             last_px = 1.0
         lower = last_px * (1.0 - step_pct * grid_per_side)
@@ -407,10 +404,10 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             await message.answer("Service not available")
             return
         try:
-            auto_cfg = _compute_auto_cfg()
             await message.answer("در حال روشن کردن…")
             async def run():
                 try:
+                    auto_cfg = await _compute_auto_cfg_async()
                     await grid_service.reconfigure(auto_cfg)
                     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="نمایش داشبورد", callback_data="show_dashboard")]])
                     await message.answer("گرید روشن شد ✅ (حالت خودکار ۱۲ سطح)", reply_markup=kb)
@@ -429,7 +426,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
         await query.message.answer("در حال روشن کردن…")
         async def run():
             try:
-                auto_cfg = _compute_auto_cfg()
+                auto_cfg = await _compute_auto_cfg_async()
                 await grid_service.reconfigure(auto_cfg)
                 kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="نمایش داشبورد", callback_data="show_dashboard")]])
                 await query.message.answer("گرید روشن شد ✅ (حالت خودکار ۱۲ سطح)", reply_markup=kb)
