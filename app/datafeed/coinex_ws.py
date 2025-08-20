@@ -27,7 +27,12 @@ class CoinExWS:
             url = self.WS_URLS[url_idx % len(self.WS_URLS)]
             try:
                 # Disable low-level ping; CoinEx expects app-level JSON ping/pong
-                async with websockets.connect(url, max_queue=2048, ping_interval=None) as ws:
+                async with websockets.connect(
+                    url,
+                    max_queue=2048,
+                    ping_interval=None,
+                    compression="deflate",
+                ) as ws:
                     self._ws = ws
                     await self._send_sub(ws, market)
                     self._hb_task = asyncio.create_task(self._heartbeat())
@@ -54,9 +59,17 @@ class CoinExWS:
             await asyncio.sleep(15)
 
     async def _send_sub(self, ws, market: str) -> None:
-        # v2 format: channel "spot/ticker" with market
-        payload = {"method": "subscribe", "params": {"channel": "spot/ticker", "market": market}, "id": 1}
-        await ws.send(json.dumps(payload))
+        # Try official forms
+        payloads = [
+            {"method": "subscribe", "params": {"channel": "spot/ticker", "market": market}, "id": 1},
+            {"method": "subscribe", "params": {"channels": [f"spot/ticker:{market}"]}, "id": 2},
+        ]
+        for p in payloads:
+            try:
+                await ws.send(json.dumps(p))
+                await asyncio.sleep(0.05)
+            except Exception:
+                continue
 
     def _decode(self, raw) -> Optional[dict]:
         text: Optional[str] = None
