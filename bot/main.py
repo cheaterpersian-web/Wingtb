@@ -10,6 +10,8 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 from .coinex_client import CoinexClient
 from .demo_strategy import SimpleMAReversion
 from .strategy_registry import list_strategies, get_strategy
+from .strategies.ma_reversion_live import MAReversionLive
+from .paper_engine import PaperEngine
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -28,6 +30,7 @@ HELP_TEXT = (
 
 
 client = CoinexClient()
+live_engines = {}
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -35,6 +38,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 		[KeyboardButton(text="📊 Ticker"), KeyboardButton(text="📈 Klines")],
 		[KeyboardButton(text="🔍 Search"), KeyboardButton(text="🤖 Strategies")],
 		[KeyboardButton(text="📉 Volatility")],
+		[KeyboardButton(text="▶️ Start Live"), KeyboardButton(text="⏹ Stop Live")],
+		[KeyboardButton(text="ℹ️ Live Status")],
 	]
 	reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 	await update.message.reply_text(HELP_TEXT, reply_markup=reply_markup)
@@ -174,6 +179,56 @@ async def volatility(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 		return
 	vol = _annualized_vol_from_klines(rows)
 	await update.message.reply_text(f"Vol (annualized) ≈ {vol:.2%}")
+
+
+def _engine_key(user_id: int) -> str:
+	return f"user:{user_id}"
+
+
+async def start_live(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+	if update.message and update.message.text and update.message.text.strip().lower() in {"▶️ start live", "start live"}:
+		await update.message.reply_text("مثال: /start_live BTCUSDT 1hour 200000")
+		return
+	if not context.args:
+		await update.message.reply_text("مثال: /start_live BTCUSDT 1hour 200000")
+		return
+	market = context.args[0].upper()
+	period = context.args[1] if len(context.args) >= 2 else "1hour"
+	balance = float(context.args[2]) if len(context.args) >= 3 else 200000.0
+	user_id = update.effective_user.id if update.effective_user else 0
+	key = _engine_key(user_id)
+	if key in live_engines:
+		await update.message.reply_text("در حال حاضر یک موتور لایو فعال است. ابتدا آن را متوقف کنید.")
+		return
+	strategy = MAReversionLive(window=10, threshold=0.003)
+	engine = PaperEngine(client, market, period, balance, strategy, poll_sec=5)
+	live_engines[key] = engine
+	engine.start()
+	await update.message.reply_text(f"Live demo trading شروع شد روی {market} با بالانس {balance:.2f} USDT")
+
+
+async def stop_live(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+	user_id = update.effective_user.id if update.effective_user else 0
+	key = _engine_key(user_id)
+	engine = live_engines.pop(key, None)
+	if engine:
+		engine.stop()
+		await update.message.reply_text("Live demo trading متوقف شد.")
+	else:
+		await update.message.reply_text("موتور فعالی پیدا نشد.")
+
+
+async def live_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+	user_id = update.effective_user.id if update.effective_user else 0
+	key = _engine_key(user_id)
+	engine = live_engines.get(key)
+	if not engine:
+		await update.message.reply_text("موتور فعالی پیدا نشد.")
+		return
+	s = engine.snapshot()
+	await update.message.reply_text(
+		f"Live Status:\nMarket: {s['market']}\nPeriod: {s['period']}\nBalance: {s['balance_usdt']:.2f} USDT\nPosition: qty={s['position']['qty']:.6f} avg={s['position']['avg_price']:.2f}\nTrades: {s['trades']}"
+	)
 	market = context.args[0].upper()
 	period = context.args[1] if len(context.args) >= 2 else "1hour"
 	limit = int(context.args[2]) if len(context.args) >= 3 else 200
@@ -205,6 +260,9 @@ def build_application() -> Application:
 	app.add_handler(CommandHandler("strategies", strategies))
 	app.add_handler(CommandHandler("use", use_strategy))
 	app.add_handler(CommandHandler("volatility", volatility))
+	app.add_handler(CommandHandler("start_live", start_live))
+	app.add_handler(CommandHandler("stop_live", stop_live))
+	app.add_handler(CommandHandler("live_status", live_status))
 	return app
 
 

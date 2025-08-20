@@ -31,6 +31,10 @@ python -m bot.main
 - `/strategies`: List strategies
 - `/use <strategy_key> <market> [period] [limit]`: Run selected strategy
 - `/volatility <market> [period] [limit]`: Compute annualized volatility from klines
+- Live paper trading:
+  - `/start_live <market> [period] [balance]` (default `1hour`, `200000` USDT)
+  - `/live_status`
+  - `/stop_live`
 
 ### Notes
 - Public endpoints used:
