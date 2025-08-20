@@ -14,6 +14,9 @@ class GridIntent:
 @dataclass
 class GridState:
     last_price: Optional[float] = None
+    anchor_center: Optional[float] = None
+    buy_levels: List[float] | None = None
+    sell_levels: List[float] | None = None
 
 
 @dataclass
@@ -46,6 +49,14 @@ class GridStrategy:
             ratio = (p.upper_price / p.lower_price) ** (1.0 / max(p.grid_count * 2, 1)) - 1.0
         return max(center * ratio, 0.0)
 
+    def _ensure_levels(self, center: float) -> None:
+        if self.state.anchor_center is None:
+            self.state.anchor_center = center
+            step = self._compute_step(center)
+            grid_size = max(self.params.grid_count, 0)
+            self.state.buy_levels = [center - (i + 1) * step for i in range(grid_size)]
+            self.state.sell_levels = [center + (i + 1) * step for i in range(grid_size)]
+
     def on_tick(self, price: float, rsi: Optional[float] = None, fast_ema: Optional[float] = None, slow_ema: Optional[float] = None) -> List[GridIntent]:
         intents: List[GridIntent] = []
         last = self.state.last_price
@@ -53,14 +64,10 @@ class GridStrategy:
         if last is None:
             return intents
 
-        # Pseudocode-based grid: build symmetric levels around center (price)
-        center = price
-        step = self._compute_step(center)
-        if step <= 0:
-            return intents
-        grid_size = max(self.params.grid_count, 0)
-        buy_levels = [center - (i + 1) * step for i in range(grid_size)]
-        sell_levels = [center + (i + 1) * step for i in range(grid_size)]
+        # Build symmetric levels around initial center (first observed price)
+        self._ensure_levels(price)
+        buy_levels = self.state.buy_levels or []
+        sell_levels = self.state.sell_levels or []
 
         crossed_down = [lvl for lvl in buy_levels if price <= lvl < last]
         crossed_up = [lvl for lvl in sell_levels if last < lvl <= price]

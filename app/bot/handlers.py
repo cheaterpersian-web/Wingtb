@@ -344,7 +344,13 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             await message.answer("Service not available")
             return
         await grid_service.start()
-        await message.answer("Grid started")
+        # Immediately show status and strategy to confirm it's running
+        b = exec_gateway.balances()
+        await message.answer("Grid started\n" + _format_strategy())
+        await message.answer(
+            f"USDT={b['USDT']:.2f}, ASSET_QTY={b['ASSET_QTY']:.6f}, PRICE={b['ASSET_PRICE']:.2f}\n"
+            f"EQUITY={b['EQUITY']:.2f}"
+        )
 
     @dp.message(Command("grid_off"))
     async def cmd_grid_off(message: Message):
