@@ -32,8 +32,8 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
     async def cmd_status(message: Message):
         b = exec_gateway.balances()
         text = (
-            f"USDT={b['USDT']:.2f}, ASSET_QTY={b['ASSET_QTY']:.6f}, PRICE={b['ASSET_PRICE']:.2f}\n"
-            f"EQUITY={b['EQUITY']:.2f}, PNL_REAL={b['PNL_REALIZED']:.2f}, WIN_RATE={b['WIN_RATE']:.2f}%\n"
+            f"USDT={b['USDT']:.2f}, ASSET_QTY={b['ASSET_QTY']:.6f}, PRICE={b['ASSET_PRICE']:.2f}, AVG_COST={b.get('AVG_COST',0):.2f}\n"
+            f"EQUITY={b['EQUITY']:.2f}, PNL_REAL={b['PNL_REALIZED']:.2f}, PNL_UNREAL={b.get('PNL_UNREALIZED',0):.2f}, WIN_RATE={b['WIN_RATE']:.2f}%\n"
             f"MAX_DD={b['MAX_DRAWDOWN']:.2f}"
         )
         await message.answer(text)
@@ -86,8 +86,8 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
     async def cb_show_status(query: CallbackQuery):
         b = exec_gateway.balances()
         text = (
-            f"USDT={b['USDT']:.2f}, ASSET_QTY={b['ASSET_QTY']:.6f}, PRICE={b['ASSET_PRICE']:.2f}\n"
-            f"EQUITY={b['EQUITY']:.2f}, PNL_REAL={b['PNL_REALIZED']:.2f}, WIN_RATE={b['WIN_RATE']:.2f}%\n"
+            f"USDT={b['USDT']:.2f}, ASSET_QTY={b['ASSET_QTY']:.6f}, PRICE={b['ASSET_PRICE']:.2f}, AVG_COST={b.get('AVG_COST',0):.2f}\n"
+            f"EQUITY={b['EQUITY']:.2f}, PNL_REAL={b['PNL_REALIZED']:.2f}, PNL_UNREAL={b.get('PNL_UNREALIZED',0):.2f}, WIN_RATE={b['WIN_RATE']:.2f}%\n"
             f"MAX_DD={b['MAX_DRAWDOWN']:.2f}"
         )
         await query.message.answer(text)

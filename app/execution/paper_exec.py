@@ -21,6 +21,7 @@ class PaperExecutionGateway:
         self.repo = repo
         self.usdt_balance: float = start_usdt
         self.asset_qty: float = 0.0
+        self.position_cost_usdt: float = 0.0  # total cost basis of current position
         self.fee_bps = fee_bps
         self.slippage_bps = slippage_bps
         self.last_price: float = 0.0
@@ -55,14 +56,20 @@ class PaperExecutionGateway:
                 cost = notional + fee
             self.usdt_balance -= cost
             self.asset_qty += qty
+            # increase cost basis including fee
+            self.position_cost_usdt += cost
         else:
             if qty > self.asset_qty:
                 qty = self.asset_qty
                 notional = fill_price * qty
                 fee = notional * (self.fee_bps / 10000.0)
             proceeds = notional - fee
-            # Simple FIFO approximation: assume average price equal to last_price for PnL calc
-            pnl_realized = proceeds - (self.last_price * qty)
+            # Realize PnL against average cost basis
+            avg_cost = (self.position_cost_usdt / self.asset_qty) if self.asset_qty > 0 else 0.0
+            cost_basis_sold = avg_cost * qty
+            pnl_realized = proceeds - cost_basis_sold
+            # reduce cost basis proportionally
+            self.position_cost_usdt -= cost_basis_sold
             self.realized_pnl += pnl_realized
             self.usdt_balance += proceeds
             self.asset_qty -= qty
@@ -109,12 +116,16 @@ class PaperExecutionGateway:
         )
 
     def balances(self) -> Dict[str, float]:
+        avg_cost = (self.position_cost_usdt / self.asset_qty) if self.asset_qty > 0 else 0.0
+        unrealized = self.asset_qty * self.last_price - self.position_cost_usdt
         return {
             "USDT": self.usdt_balance,
             "ASSET_QTY": self.asset_qty,
             "ASSET_PRICE": self.last_price,
+            "AVG_COST": avg_cost,
             "EQUITY": self.usdt_balance + self.asset_qty * self.last_price,
             "PNL_REALIZED": self.realized_pnl,
+            "PNL_UNREALIZED": unrealized,
             "WIN_RATE": (self.closed_wins / self.closed_total * 100.0) if self.closed_total else 0.0,
             "MAX_DRAWDOWN": self.max_drawdown,
         }
@@ -125,6 +136,7 @@ class PaperExecutionGateway:
     def reset(self, start_usdt: float) -> None:
         self.usdt_balance = start_usdt
         self.asset_qty = 0.0
+        self.position_cost_usdt = 0.0
         self.last_price = 0.0
         self.realized_pnl = 0.0
         self.closed_wins = 0
