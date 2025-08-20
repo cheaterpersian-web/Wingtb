@@ -110,19 +110,26 @@ class CoinExREST:
         return None
 
     async def get_ticker(self, market: str) -> float:
-        paths = ("/spot/ticker", "/market/ticker", "/market/ticker/all")
         params = {"market": market}
-        # Try v2 then v1
-        for base in self.BASE_URLS:
-            for path in paths:
-                try:
-                    r = await self._request(base, path, params)
-                    r.raise_for_status()
-                    price = self._extract_price(r.json())
-                    if price is not None:
-                        return price
-                except Exception as e:
-                    logger.debug("ticker fetch failed on %s%s: %s", base, path, e)
+        # Prefer v2 spot ticker
+        try:
+            r = await self._request(self.BASE_URLS[0], "/spot/ticker", params)
+            r.raise_for_status()
+            price = self._extract_price(r.json())
+            if price is not None:
+                return price
+        except Exception as e:
+            logger.debug("v2 spot/ticker failed: %s", e)
+
+        # Fallback to v1 market ticker
+        try:
+            r = await self._request(self.BASE_URLS[1], "/market/ticker", params)
+            r.raise_for_status()
+            price = self._extract_price(r.json())
+            if price is not None:
+                return price
+        except Exception as e:
+            logger.debug("v1 market/ticker failed: %s", e)
         return 0.0
 
     async def aclose(self) -> None:

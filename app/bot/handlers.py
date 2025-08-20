@@ -142,6 +142,8 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 
         async def _run():
             try:
+                # ensure engine has current price for proper snapshot/metrics
+                await exec_gateway.on_price(float(price))
                 res = await exec_gateway.place_order(cfg.pair, "BUY", qty, float(price))
                 b = exec_gateway.balances()
                 text = (
