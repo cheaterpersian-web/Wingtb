@@ -73,7 +73,7 @@ class Paper:
 		fee = usdt_amount * (self.fee_bps / 10000.0)
 		self.usdt -= (usdt_amount + fee)
 		self.qty += qty
-		return f"BUY {market} qty={qty:.6f} @ {self.price:.2f} fee={fee:.4f}"
+		return f"BUY {market} qty={qty:.8f} @ {self.price:.8f} fee={fee:.4f}"
 
 	async def sell(self, market: str, qty: float) -> str:
 		qty = min(qty, self.qty)
@@ -83,11 +83,11 @@ class Paper:
 		fee = proceeds * (self.fee_bps / 10000.0)
 		self.usdt += (proceeds - fee)
 		self.qty -= qty
-		return f"SELL {market} qty={qty:.6f} @ {self.price:.2f} fee={fee:.4f}"
+		return f"SELL {market} qty={qty:.8f} @ {self.price:.8f} fee={fee:.4f}"
 
 	def status(self) -> str:
 		equity = self.usdt + self.qty * self.price
-		return f"USDT={self.usdt:.2f} QTY={self.qty:.6f} PX={self.price:.2f} EQ={equity:.2f}"
+		return f"USDT={self.usdt:.2f} QTY={self.qty:.8f} PX={self.price:.8f} EQ={equity:.2f}"
 
 
 async def main() -> None:
@@ -114,7 +114,7 @@ async def main() -> None:
 		try:
 			p = await cx.price(market)
 			await paper.on_price(p)
-			await message.answer(f"PX={p}")
+			await message.answer(f"PX={p:.8f}")
 		except Exception as e:
 			await message.answer(f"ERR: {e}")
 
@@ -125,7 +125,7 @@ async def main() -> None:
 			try:
 				p = await cx.price(market)
 				await paper.on_price(p)
-				logger.info("price updated: %s", p)
+				logger.info("price updated: %.8f", p)
 				await asyncio.sleep(2)
 			except Exception as e:
 				logger.warning("price loop error: %s", e)
