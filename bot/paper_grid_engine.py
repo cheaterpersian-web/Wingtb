@@ -54,12 +54,25 @@ class PaperGridEngine:
 		quote_per_order: float = 20.0,
 		recenter_on_break: bool = True,
 		poll_sec: int = 5,
+		# grid tuning options (official-style)
+		spacing_mode: str = "percent",  # "percent" or "arithmetic"
+		step_absolute: Optional[float] = None,  # used when spacing_mode == "arithmetic"
+		center_price_source: str = "last",  # "last" or "ema"
+		ema_len_for_center: int = 20,
+		kill_switch_pct: Optional[float] = None,  # if recenter_on_break is False and price breaks beyond this, stop
+		only_buy_mode: bool = False,
 	) -> None:
 		self.client = client
 		self.market = market
 		self.period = period
 		self.poll_sec = poll_sec
 		self.recenter_on_break = recenter_on_break
+		self.spacing_mode = spacing_mode
+		self.step_absolute = step_absolute
+		self.center_price_source = center_price_source
+		self.ema_len_for_center = ema_len_for_center
+		self.kill_switch_pct = kill_switch_pct
+		self.only_buy_mode = only_buy_mode
 		self.state = GridState(
 			market=market,
 			period=period,
@@ -101,24 +114,63 @@ class PaperGridEngine:
 		}
 
 	def _bootstrap_grid(self) -> None:
-		# center from latest kline close
-		rows = self.client.get_kline(self.market, self.period, limit=1)
-		if not rows:
-			raise RuntimeError("Could not fetch initial price for grid")
-		center = float(rows[-1].get("close"))
+		center = self._compute_center_price()
 		self._center_price = center
 		self.state.buy_levels = []
 		self.state.sell_levels = []
-		# build levels
-		buy_step = self.state.lower_pct / self.state.levels_per_side
-		sell_step = self.state.upper_pct / self.state.levels_per_side
-		for i in range(1, self.state.levels_per_side + 1):
-			buy_price = center * (1 - buy_step * i)
-			qty = self.state.quote_per_order / buy_price
-			self.state.buy_levels.append(GridLevel(price=buy_price, qty_base=qty))
-			sell_price = center * (1 + sell_step * i)
-			qty_s = self.state.quote_per_order / sell_price
-			self.state.sell_levels.append(GridLevel(price=sell_price, qty_base=qty_s))
+		self._build_levels(center)
+
+	def _compute_center_price(self) -> float:
+		# Source center from last price or EMA of close
+		if self.center_price_source == "ema":
+			limit = self.ema_len_for_center if self.ema_len_for_center > 1 else 20
+			rows = self.client.get_kline(self.market, self.period, limit=limit)
+			if not rows:
+				raise RuntimeError("Could not fetch klines for EMA center price")
+			# compute standard EMA over closes
+			closes = [float(r.get("close")) for r in rows if r.get("close") is not None]
+			if not closes:
+				raise RuntimeError("No closing prices for EMA center price")
+			alpha = 2.0 / (min(len(closes), self.ema_len_for_center) + 1.0)
+			ema = closes[0]
+			for c in closes[1:]:
+				ema = alpha * c + (1.0 - alpha) * ema
+			return ema
+		# default: last close
+		rows = self.client.get_kline(self.market, self.period, limit=1)
+		if not rows:
+			raise RuntimeError("Could not fetch last close for center price")
+		return float(rows[-1].get("close"))
+
+	def _build_levels(self, center: float) -> None:
+		levels = self.state.levels_per_side
+		if levels <= 0:
+			return
+		if self.spacing_mode == "arithmetic":
+			# fixed absolute steps; fallback to percent-derived step if not provided
+			buy_step_abs = self.step_absolute if self.step_absolute is not None else (center * self.state.lower_pct / levels)
+			sell_step_abs = self.step_absolute if self.step_absolute is not None else (center * self.state.upper_pct / levels)
+			for i in range(1, levels + 1):
+				buy_price = center - buy_step_abs * i
+				if buy_price > 0:
+					qty = self.state.quote_per_order / buy_price
+					self.state.buy_levels.append(GridLevel(price=buy_price, qty_base=qty))
+				if not self.only_buy_mode:
+					sell_price = center + sell_step_abs * i
+					qty_s = self.state.quote_per_order / sell_price
+					self.state.sell_levels.append(GridLevel(price=sell_price, qty_base=qty_s))
+		else:
+			# percent spacing
+			buy_step_pct = self.state.lower_pct / levels
+			sell_step_pct = self.state.upper_pct / levels
+			for i in range(1, levels + 1):
+				buy_price = center * (1 - buy_step_pct * i)
+				qty = self.state.quote_per_order / buy_price
+				self.state.buy_levels.append(GridLevel(price=buy_price, qty_base=qty))
+				if not self.only_buy_mode:
+					sell_price = center * (1 + sell_step_pct * i)
+					qty_s = self.state.quote_per_order / sell_price
+					self.state.sell_levels.append(GridLevel(price=sell_price, qty_base=qty_s))
 
 	def _run_loop(self) -> None:
 		while not self._stop.is_set():
@@ -145,6 +197,13 @@ class PaperGridEngine:
 			high_bound = self._center_price * (1 + self.state.upper_pct)
 			if price < low_bound or price > high_bound:
 				self._bootstrap_grid()
+				return
+		# kill switch: if not recentering and break beyond kill threshold, stop the engine
+		if (not self.recenter_on_break) and self._center_price and self.kill_switch_pct is not None:
+			low_kill = self._center_price * (1 - self.kill_switch_pct)
+			high_kill = self._center_price * (1 + self.kill_switch_pct)
+			if price < low_kill or price > high_kill:
+				self._stop.set()
 				return
 
 		# fill buys where price <= level

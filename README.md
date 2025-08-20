@@ -58,11 +58,12 @@ Phase 2: Run a simple demo backtest (paper trading) with real data from CoinEx i
 pip install -r requirements.txt
 ```
 
-### Run
+## New Modular Bot (aiogram) — Run
 ```bash
-export TELEGRAM_BOT_TOKEN=your_token_here
-python -m bot.main
+python -m scripts.run_bot
 ```
+Env (.env): set `BOT_TOKEN`, optionally `DEFAULT_PAIR`, `START_BALANCE_USDT`.
+Key commands: /grid_on, /grid_off, /status, /set_pair, /set_tf, /set_grid, /history, /export_csv.
 
 ### Commands
 - `/start` or `/help`: Show help
