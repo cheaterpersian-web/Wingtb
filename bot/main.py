@@ -12,6 +12,7 @@ from .demo_strategy import SimpleMAReversion
 from .strategy_registry import list_strategies, get_strategy
 from .strategies.ma_reversion_live import MAReversionLive
 from .paper_engine import PaperEngine
+from .paper_grid_engine import PaperGridEngine
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -200,11 +201,22 @@ async def start_live(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 	if key in live_engines:
 		await update.message.reply_text("در حال حاضر یک موتور لایو فعال است. ابتدا آن را متوقف کنید.")
 		return
-	strategy = MAReversionLive(window=10, threshold=0.003)
-	engine = PaperEngine(client, market, period, balance, strategy, poll_sec=5)
+	# Default live demo: Grid with 12 levels (6 buy, 6 sell)
+	engine = PaperGridEngine(
+		client,
+		market,
+		period=period,
+		balance_usdt=balance,
+		levels_per_side=6,
+		upper_pct=0.03,
+		lower_pct=0.03,
+		quote_per_order=20.0,
+		recenter_on_break=True,
+		poll_sec=5,
+	)
 	live_engines[key] = engine
 	engine.start()
-	await update.message.reply_text(f"Live demo trading شروع شد روی {market} با بالانس {balance:.2f} USDT")
+	await update.message.reply_text(f"Live Grid demo شروع شد روی {market} با بالانس {balance:.2f} USDT (6 buy / 6 sell)")
 
 
 async def stop_live(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -226,9 +238,17 @@ async def live_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 		await update.message.reply_text("موتور فعالی پیدا نشد.")
 		return
 	s = engine.snapshot()
-	await update.message.reply_text(
-		f"Live Status:\nMarket: {s['market']}\nPeriod: {s['period']}\nBalance: {s['balance_usdt']:.2f} USDT\nPosition: qty={s['position']['qty']:.6f} avg={s['position']['avg_price']:.2f}\nTrades: {s['trades']}"
-	)
+	if isinstance(s, dict) and s.get("type") == "grid":
+		await update.message.reply_text(
+			f"Live Status (Grid):\nMarket: {s['market']}\nPeriod: {s['period']}\n"
+			f"Balance: {s['balance_usdt']:.2f} USDT\nBaseQty: {s['base_qty']:.6f} avg={s['avg_cost']:.2f}\n"
+			f"Open Buys: {s['open_buys']} | Open Sells: {s['open_sells']} | Trades: {s['trades']}"
+		)
+	else:
+		await update.message.reply_text(
+			f"Live Status:\nMarket: {s['market']}\nPeriod: {s['period']}\nBalance: {s['balance_usdt']:.2f} USDT\n"
+			f"Position: qty={s['position']['qty']:.6f} avg={s['position']['avg_price']:.2f}\nTrades: {s['trades']}"
+		)
 
 
 def build_application() -> Application:
@@ -294,4 +314,3 @@ def main() -> None:
 
 if __name__ == "__main__":
 	main()
-
