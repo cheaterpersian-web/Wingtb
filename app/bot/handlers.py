@@ -75,6 +75,35 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             f"فیلتر EMA: {'فعال' if use_ema else 'غیرفعال'} (خرید: EMA12 < EMA26 ، فروش: EMA12 > EMA26)\n"
         )
 
+    async def _format_dashboard() -> str:
+        if grid_service is None:
+            return "Service not available"
+        cfg = grid_service.cfg
+        b = exec_gateway.balances()
+        # last 5 trades
+        rows = await repo.fetch_trades(5)
+        trades_text = "\n".join(
+            [
+                f"{r.ts} {r.side} {r.pair} px={r.price:.2f} qty={r.qty:.6f} fee={r.fee:.4f} pnl={r.pnl_realized:.2f}"
+                for r in rows
+            ]
+        ) if rows else "No trades yet"
+        return (
+            f"وضعیت گرید (روشن):\n"
+            f"جفت: {cfg.pair} | TF: {cfg.timeframe}\n"
+            f"Range: {cfg.lower_price:.2f} → {cfg.upper_price:.2f} | Grids/side: {cfg.grid_count} | Step: {cfg.step_type}\n"
+            f"Base USDT: {cfg.base_order_usdt:.2f} | Fee bps: {cfg.fee_bps:.2f} | Slippage bps: {cfg.slippage_bps:.2f}\n"
+            f"USDT={b['USDT']:.2f} | QTY={b['ASSET_QTY']:.6f} | Price={b['ASSET_PRICE']:.2f} | Equity={b['EQUITY']:.2f}\n"
+            f"RealPNL={b['PNL_REALIZED']:.2f} | UnrlPNL={b.get('PNL_UNREALIZED',0):.2f} | WinRate={b['WIN_RATE']:.2f}%\n"
+            f"— آخرین معاملات —\n{trades_text}"
+        )
+
+    @dp.callback_query(F.data == "show_dashboard")
+    async def cb_show_dashboard(query: CallbackQuery):
+        text = await _format_dashboard()
+        await query.message.answer(text)
+        await query.answer()
+
     @dp.message(Command("strategy"))
     async def cmd_strategy(message: Message):
         await message.answer(_format_strategy())
@@ -374,12 +403,8 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
         try:
             auto_cfg = _compute_auto_cfg()
             await grid_service.reconfigure(auto_cfg)
-            b = exec_gateway.balances()
-            await message.answer("Grid started (auto 12 levels)\n" + _format_strategy(auto_cfg))
-            await message.answer(
-                f"USDT={b['USDT']:.2f}, ASSET_QTY={b['ASSET_QTY']:.6f}, PRICE={b['ASSET_PRICE']:.2f}\n"
-                f"EQUITY={b['EQUITY']:.2f}"
-            )
+            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="نمایش داشبورد", callback_data="show_dashboard")]])
+            await message.answer("گرید روشن شد ✅ (حالت خودکار ۱۲ سطح)", reply_markup=kb)
         except Exception as e:
             await message.answer(f"❌ خطا در روشن‌کردن گرید: {e}")
 
@@ -393,12 +418,8 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             try:
                 auto_cfg = _compute_auto_cfg()
                 await grid_service.reconfigure(auto_cfg)
-                b = exec_gateway.balances()
-                await query.message.answer("Grid started (auto 12 levels)\n" + _format_strategy(auto_cfg))
-                await query.message.answer(
-                    f"USDT={b['USDT']:.2f}, ASSET_QTY={b['ASSET_QTY']:.6f}, PRICE={b['ASSET_PRICE']:.2f}\n"
-                    f"EQUITY={b['EQUITY']:.2f}"
-                )
+                kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="نمایش داشبورد", callback_data="show_dashboard")]])
+                await query.message.answer("گرید روشن شد ✅ (حالت خودکار ۱۲ سطح)", reply_markup=kb)
             except Exception as e:
                 await query.message.answer(f"❌ خطا در روشن‌کردن گرید: {e}")
         asyncio.create_task(run())
