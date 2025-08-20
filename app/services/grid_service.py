@@ -62,7 +62,26 @@ class GridService:
 
     async def warmup_indicators(self) -> None:
         candles = await self.datafeed.get_klines(self.cfg.pair, self.cfg.timeframe, 200)
-        closes = [float(c.get("close") or c.get("c") or 0.0) for c in candles]
+        closes: list[float] = []
+        for c in candles:
+            close_val: float | None = None
+            if isinstance(c, dict):
+                v = c.get("close") or c.get("c") or c.get("last") or c.get("price")
+                if v is not None:
+                    try:
+                        close_val = float(v)
+                    except Exception:
+                        close_val = None
+            elif isinstance(c, (list, tuple)):
+                # CoinEx v1 shape example:
+                # [timestamp, open, close, high, low, amount, volume]
+                if len(c) >= 3:
+                    try:
+                        close_val = float(c[2])
+                    except Exception:
+                        close_val = None
+            if close_val is not None:
+                closes.append(close_val)
         self._closes.clear()
         for c in closes:
             self._closes.append(c)
@@ -79,9 +98,10 @@ class GridService:
         async def on_price(price: float) -> None:
             await self.exec.on_price(price)
             self._closes.append(price)
-            self._fast_ema_series = compute_ema(list(self._closes), 12)
-            self._slow_ema_series = compute_ema(list(self._closes), 26)
-            self._rsi_series = compute_rsi(list(self._closes), 14)
+            closes_list = list(self._closes)
+            self._fast_ema_series = compute_ema(closes_list, 12)
+            self._slow_ema_series = compute_ema(closes_list, 26)
+            self._rsi_series = compute_rsi(closes_list, 14)
             fast_ema = self._fast_ema_series[-1] if self._fast_ema_series else None
             slow_ema = self._slow_ema_series[-1] if self._slow_ema_series else None
             rsi = self._rsi_series[-1] if self._rsi_series else None
