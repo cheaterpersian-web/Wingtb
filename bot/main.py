@@ -229,18 +229,6 @@ async def live_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 	await update.message.reply_text(
 		f"Live Status:\nMarket: {s['market']}\nPeriod: {s['period']}\nBalance: {s['balance_usdt']:.2f} USDT\nPosition: qty={s['position']['qty']:.6f} avg={s['position']['avg_price']:.2f}\nTrades: {s['trades']}"
 	)
-	market = context.args[0].upper()
-	period = context.args[1] if len(context.args) >= 2 else "1hour"
-	limit = int(context.args[2]) if len(context.args) >= 3 else 200
-
-	rows = client.get_kline(market=market, period=period, limit=limit)
-	if not rows or len(rows) < 15:
-		await update.message.reply_text("داده‌ی کافی برای بک‌تست وجود ندارد.")
-		return
-
-	strategy = SimpleMAReversion(window=10, threshold=0.003, position_size_usdt=100.0)
-	result = strategy.run(market=market, klines=rows)
-	await update.message.reply_text(SimpleMAReversion.format_summary(result))
 
 
 def build_application() -> Application:
