@@ -42,12 +42,20 @@ class GridStrategy:
         if p.step_type == "fixed":
             span = max(p.upper_price - p.lower_price, 0.0)
             # distribute across both sides
-            return span / max(p.grid_count * 2, 1)
+            step = span / max(p.grid_count * 2, 1)
+            # clamp to a reasonable bound (~0.2% of price) to ensure activity
+            max_step = center * 0.002
+            min_step = center * 0.0005
+            return max(min(step, max_step), min_step)
         # percent-based step derived from range ratio
         ratio = 0.0
         if p.lower_price > 0 and p.upper_price > 0 and p.upper_price > p.lower_price:
             ratio = (p.upper_price / p.lower_price) ** (1.0 / max(p.grid_count * 2, 1)) - 1.0
-        return max(center * ratio, 0.0)
+        step = max(center * ratio, 0.0)
+        # clamp to [0.05%, 0.2%] of price
+        max_step = center * 0.002
+        min_step = center * 0.0005
+        return max(min(step, max_step), min_step)
 
     def _ensure_levels(self, center: float) -> None:
         if self.state.anchor_center is None:

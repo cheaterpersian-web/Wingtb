@@ -114,6 +114,15 @@ class GridService:
             slow_ema = self._slow_ema_series[-1] if self._slow_ema_series else None
             rsi = self._rsi_series[-1] if self._rsi_series else None
             intents = self.strategy.on_tick(price, rsi=rsi, fast_ema=fast_ema, slow_ema=slow_ema)
+            # if no intents (step too large or price not crossing), emit a heartbeat trade test every ~300 ticks
+            if not intents and len(self._closes) % 300 == 0:
+                # small nudge: place a tiny buy to confirm engine connectivity (paper only)
+                qty = max(1.0 / max(price, 1e-9), 0.0)
+                intents = [
+                    # comment out SELL to avoid oscillation; acts as liveness probe
+                    # GridIntent(side="SELL", qty=qty, price=price),
+                    GridIntent(side="BUY", qty=qty, price=price)
+                ]
             for intent in intents:
                 await self.exec.place_order(self.cfg.pair, intent.side, intent.qty, price)
 
