@@ -6,6 +6,7 @@ Phase 2: Run a simple demo backtest (paper trading) with real data from CoinEx i
 ### Requirements
 - Python 3.10+
 - Telegram bot token in env var `TELEGRAM_BOT_TOKEN`
+- Optional: CoinEx API credentials in env vars `COINEX_ACCESS_ID`, `COINEX_SECRET_KEY`
 
 ### Install
 ```bash
@@ -15,6 +16,9 @@ pip install -r requirements.txt
 ### Run
 ```bash
 export TELEGRAM_BOT_TOKEN=your_token_here
+# optional, if you need signed/private endpoints in future
+export COINEX_ACCESS_ID=your_access_id
+export COINEX_SECRET_KEY=your_secret_key
 python -m bot.main
 ```
 
@@ -26,6 +30,7 @@ python -m bot.main
 - `/demo <market> [period] [limit]`: Run demo strategy and show win rate and PnL
 - `/strategies`: List strategies
 - `/use <strategy_key> <market> [period] [limit]`: Run selected strategy
+- `/volatility <market> [period] [limit]`: Compute annualized volatility from klines
 
 ### Notes
 - Public endpoints used:

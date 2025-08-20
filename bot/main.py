@@ -23,6 +23,7 @@ HELP_TEXT = (
 	"/klines <market> [period] [limit] — گرفتن کندل‌ها (پیش‌فرض: 1hour 100)\n"
 	"/demo <market> [period] [limit] — بک‌تست دمو با استراتژی ساده روی کندل‌ها\n"
 	"/strategies — فهرست استراتژی‌ها و انتخاب\n"
+	"/volatility <market> [period] [limit] — محاسبه نوسان سالیانه از روی کندل‌ها\n"
 )
 
 
@@ -33,6 +34,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 	keyboard = [
 		[KeyboardButton(text="📊 Ticker"), KeyboardButton(text="📈 Klines")],
 		[KeyboardButton(text="🔍 Search"), KeyboardButton(text="🤖 Strategies")],
+		[KeyboardButton(text="📉 Volatility")],
 	]
 	reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 	await update.message.reply_text(HELP_TEXT, reply_markup=reply_markup)
@@ -134,6 +136,44 @@ async def use_strategy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 			await update.message.reply_text(text)
 			return
 	await update.message.reply_text("اجرای استراتژی انجام شد.")
+
+
+def _annualized_vol_from_klines(rows: List[dict]) -> float:
+	# compute log returns and stdev, scaled by sqrt(n_per_year)
+	import math
+	closes = [float(r.get("close")) for r in rows if r.get("close") is not None]
+	if len(closes) < 2:
+		return 0.0
+	logret = []
+	for i in range(1, len(closes)):
+		if closes[i-1] <= 0:
+			continue
+		logret.append(math.log(closes[i]/closes[i-1]))
+	if not logret:
+		return 0.0
+	mean = sum(logret)/len(logret)
+	var = sum((x-mean)**2 for x in logret)/(len(logret)-1) if len(logret)>1 else 0.0
+	stdev = math.sqrt(var)
+	# infer period to scale: for simplicity assume hourly if period contains 'hour', else daily
+	return stdev * (24**0.5) * (365**0.5)
+
+
+async def volatility(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+	if update.message and update.message.text and update.message.text.strip().lower() in {"📉 volatility", "volatility"}:
+		await update.message.reply_text("مثال: /volatility BTCUSDT 1hour 500")
+		return
+	if not context.args:
+		await update.message.reply_text("مثال: /volatility BTCUSDT 1hour 500")
+		return
+	market = context.args[0].upper()
+	period = context.args[1] if len(context.args) >= 2 else "1hour"
+	limit = int(context.args[2]) if len(context.args) >= 3 else 500
+	rows = client.get_kline(market=market, period=period, limit=limit)
+	if not rows or len(rows) < 20:
+		await update.message.reply_text("داده‌ی کافی برای محاسبه نوسان وجود ندارد.")
+		return
+	vol = _annualized_vol_from_klines(rows)
+	await update.message.reply_text(f"Vol (annualized) ≈ {vol:.2%}")
 	market = context.args[0].upper()
 	period = context.args[1] if len(context.args) >= 2 else "1hour"
 	limit = int(context.args[2]) if len(context.args) >= 3 else 200
@@ -164,6 +204,7 @@ def build_application() -> Application:
 	app.add_handler(CommandHandler("demo", demo))
 	app.add_handler(CommandHandler("strategies", strategies))
 	app.add_handler(CommandHandler("use", use_strategy))
+	app.add_handler(CommandHandler("volatility", volatility))
 	return app
 
 
