@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 from telegram import KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
 from telegram.constants import ParseMode
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from .coinex_client import CoinexClient
 from .demo_strategy import SimpleMAReversion
@@ -263,6 +263,39 @@ def build_application() -> Application:
 	app.add_handler(CommandHandler("start_live", start_live))
 	app.add_handler(CommandHandler("stop_live", stop_live))
 	app.add_handler(CommandHandler("live_status", live_status))
+
+	async def on_button_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+		if not update.message or not update.message.text:
+			return
+		t = update.message.text.strip()
+		l = t.casefold()
+		if l == "📊 ticker" or l == "ticker":
+			await update.message.reply_text("مثال: /ticker BTCUSDT")
+			return
+		if l == "📈 klines" or l == "klines":
+			await update.message.reply_text("مثال: /klines BTCUSDT 1hour 50")
+			return
+		if l == "🔍 search" or l == "search":
+			await update.message.reply_text("مثال: /search BTC")
+			return
+		if l == "🤖 strategies" or l == "strategies":
+			await strategies(update, context)
+			return
+		if l == "📉 volatility" or l == "volatility":
+			await update.message.reply_text("مثال: /volatility BTCUSDT 1hour 500")
+			return
+		if l == "▶️ start live" or l == "start live":
+			await update.message.reply_text("مثال: /start_live BTCUSDT 1hour 200000")
+			return
+		if l == "⏹ stop live" or l == "stop live":
+			await stop_live(update, context)
+			return
+		if l == "ℹ️ live status" or l == "live status":
+			await live_status(update, context)
+			return
+
+	# handle text buttons (non-command)
+	app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), on_button_text))
 	return app
 
 
