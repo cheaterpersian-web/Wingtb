@@ -1,6 +1,7 @@
 import logging
 import os
 from typing import List
+from dotenv import load_dotenv
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
@@ -94,6 +95,8 @@ async def demo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def build_application() -> Application:
+	# Load .env if present
+	load_dotenv()
 	telegram_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 	if not telegram_token:
 		raise RuntimeError("TELEGRAM_BOT_TOKEN environment variable is required.")
