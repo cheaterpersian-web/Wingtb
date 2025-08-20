@@ -23,6 +23,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="مشاهده استراتژی", callback_data="show_strategy")],
             [InlineKeyboardButton(text="تغییر استراتژی/منطق", callback_data="edit_strategy")],
+            [InlineKeyboardButton(text="معامله تستی", callback_data="test_trade")],
             [InlineKeyboardButton(text="وضعیت", callback_data="show_status"), InlineKeyboardButton(text="تاریخچه", callback_data="show_history")],
         ])
         await message.answer("Grid bot online.", reply_markup=kb)
@@ -117,8 +118,42 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             [InlineKeyboardButton(text=rsi_label, callback_data="toggle_rsi")],
             [InlineKeyboardButton(text=ema_label, callback_data="toggle_ema")],
             [InlineKeyboardButton(text=step_label, callback_data="toggle_step")],
+            [InlineKeyboardButton(text="معامله تستی", callback_data="test_trade")],
             [InlineKeyboardButton(text="ویرایش پارامترها", callback_data="edit_params")],
         ])
+
+    @dp.callback_query(F.data == "test_trade")
+    async def cb_test_trade(query: CallbackQuery):
+        if grid_service is None:
+            await query.answer("Service not available", show_alert=True)
+            return
+        cfg = grid_service.cfg
+        price = exec_gateway.last_price if getattr(exec_gateway, 'last_price', 0.0) else 0.0
+        if price <= 0.0:
+            try:
+                price = await grid_service.datafeed.now_price(cfg.pair)  # type: ignore[attr-defined]
+            except Exception:
+                price = 0.0
+        if price <= 0.0:
+            await query.answer("قیمت در دسترس نیست", show_alert=True)
+            return
+        qty = max(cfg.base_order_usdt / float(price), 0.000001)
+        await query.answer("در حال اجرای معامله تست…")
+
+        async def _run():
+            try:
+                res = await exec_gateway.place_order(cfg.pair, "BUY", qty, float(price))
+                b = exec_gateway.balances()
+                text = (
+                    f"✅ معامله تستی BUY {cfg.pair} | qty={res.qty:.6f} | price={res.price:.2f} | "
+                    f"fee={res.fee:.4f} | pnl={res.pnl_realized:.2f}\n"
+                    f"Equity={b['EQUITY']:.2f}, WinRate={b['WIN_RATE']:.2f}%"
+                )
+                await query.message.answer(text)
+            except Exception as e:
+                await query.message.answer(f"❌ خطا در معامله تستی: {e}")
+
+        asyncio.create_task(_run())
 
     @dp.callback_query(F.data == "edit_strategy")
     async def cb_edit_strategy(query: CallbackQuery):
