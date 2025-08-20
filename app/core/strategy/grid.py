@@ -14,14 +14,13 @@ class GridIntent:
 @dataclass
 class GridState:
     last_price: Optional[float] = None
-    levels: List[float] | None = None
 
 
 @dataclass
 class GridParams:
     lower_price: float
     upper_price: float
-    grid_count: int
+    grid_count: int  # interpreted as steps PER SIDE
     step_type: str  # percent | fixed
     base_order_usdt: float
     use_rsi_filter: bool
@@ -32,38 +31,39 @@ class GridStrategy:
     def __init__(self, params: GridParams) -> None:
         self.params = params
         self.state = GridState()
-        self._build_levels()
-
-    def _build_levels(self) -> None:
+        
+    def _compute_step(self, center: float) -> float:
         p = self.params
-        if p.grid_count <= 1:
-            self.state.levels = [p.lower_price, p.upper_price]
-            return
-        levels: List[float] = []
-        if p.step_type == "percent":
-            step = (p.upper_price / p.lower_price) ** (1 / (p.grid_count - 1))
-            price = p.lower_price
-            for _ in range(p.grid_count):
-                levels.append(price)
-                price *= step
-        else:
-            step = (p.upper_price - p.lower_price) / (p.grid_count - 1)
-            for i in range(p.grid_count):
-                levels.append(p.lower_price + step * i)
-        self.state.levels = levels
+        if p.grid_count <= 0:
+            return 0.0
+        if p.step_type == "fixed":
+            span = max(p.upper_price - p.lower_price, 0.0)
+            # distribute across both sides
+            return span / max(p.grid_count * 2, 1)
+        # percent-based step derived from range ratio
+        ratio = 0.0
+        if p.lower_price > 0 and p.upper_price > 0 and p.upper_price > p.lower_price:
+            ratio = (p.upper_price / p.lower_price) ** (1.0 / max(p.grid_count * 2, 1)) - 1.0
+        return max(center * ratio, 0.0)
 
     def on_tick(self, price: float, rsi: Optional[float] = None, fast_ema: Optional[float] = None, slow_ema: Optional[float] = None) -> List[GridIntent]:
         intents: List[GridIntent] = []
-        if not self.state.levels:
-            self._build_levels()
-        assert self.state.levels is not None
         last = self.state.last_price
         self.state.last_price = price
         if last is None:
             return intents
 
-        crossed_up = [lvl for lvl in self.state.levels if last < lvl <= price]
-        crossed_down = [lvl for lvl in self.state.levels if price <= lvl < last]
+        # Pseudocode-based grid: build symmetric levels around center (price)
+        center = price
+        step = self._compute_step(center)
+        if step <= 0:
+            return intents
+        grid_size = max(self.params.grid_count, 0)
+        buy_levels = [center - (i + 1) * step for i in range(grid_size)]
+        sell_levels = [center + (i + 1) * step for i in range(grid_size)]
+
+        crossed_down = [lvl for lvl in buy_levels if price <= lvl < last]
+        crossed_up = [lvl for lvl in sell_levels if last < lvl <= price]
 
         def rsi_ok_buy() -> bool:
             return True if not self.params.use_rsi_filter else (rsi is not None and rsi < 30)
