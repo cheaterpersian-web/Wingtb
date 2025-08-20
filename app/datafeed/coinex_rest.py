@@ -53,12 +53,15 @@ class CoinExREST:
         return []
 
     async def get_klines(self, market: str, interval: str, limit: int = 200) -> List[Dict[str, Any]]:
-        # Try v2 first with common paths, then v1 fallback with "type" param naming
-        v2_paths = ("/market/kline", "/market/candlestick")
+        # Try v2 official spot path first, then other guesses, then v1 fallback
+        v2_paths = ("/spot/kline", "/market/kline", "/market/candlestick")
         v1_paths = ("/market/kline",)
         # Try v2
         for path in v2_paths:
-            params = {"market": market, "interval": interval, "limit": limit}
+            if path.startswith("/spot/"):
+                params = {"market": market, "period": _map_tf_to_v1(interval), "limit": limit}
+            else:
+                params = {"market": market, "interval": interval, "limit": limit}
             for attempt in range(2):
                 try:
                     r = await self._request(self.BASE_URLS[0], path, params)
@@ -107,7 +110,7 @@ class CoinExREST:
         return None
 
     async def get_ticker(self, market: str) -> float:
-        paths = ("/market/ticker", "/market/ticker/all")
+        paths = ("/spot/ticker", "/market/ticker", "/market/ticker/all")
         params = {"market": market}
         # Try v2 then v1
         for base in self.BASE_URLS:
