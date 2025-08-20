@@ -24,6 +24,8 @@ python -m bot.main
 - `/ticker <market>`: Show compact ticker (e.g. `BTCUSDT`)
 - `/klines <market> [period] [limit]`: Fetch klines (default `1hour` `100`)
 - `/demo <market> [period] [limit]`: Run demo strategy and show win rate and PnL
+- `/strategies`: List strategies
+- `/use <strategy_key> <market> [period] [limit]`: Run selected strategy
 
 ### Notes
 - Public endpoints used:
