@@ -1,7 +1,7 @@
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from .coinex_client import CoinexClient
 
@@ -37,6 +37,8 @@ class GridState:
 	buy_levels: List[GridLevel] = field(default_factory=list)
 	sell_levels: List[GridLevel] = field(default_factory=list)
 	trades: List[GridTrade] = field(default_factory=list)
+	# legs created from filled buys, managed for TP/SL and sell execution
+	# historical trades already tracked in trades
 
 
 class PaperGridEngine:
