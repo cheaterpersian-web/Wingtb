@@ -1,0 +1,134 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+from typing import Awaitable, Callable
+
+import httpx
+from aiogram import Bot, Dispatcher, F
+from aiogram.filters import Command
+from aiogram.types import Message
+
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
+logger = logging.getLogger("simple")
+
+
+COINEX_V2 = "https://api.coinex.com/v2"
+
+
+class CoinExClient:
+    def __init__(self) -> None:
+        self.client = httpx.AsyncClient(timeout=10)
+
+    async def price(self, market: str) -> float:
+        r = await self.client.get(f"{COINEX_V2}/spot/ticker", params={"market": market})
+        r.raise_for_status()
+        data = r.json().get("data", {})
+        last = data.get("last") or data.get("price")
+        return float(last)
+
+    async def klines(self, market: str, period: str = "5min", limit: int = 100):
+        r = await self.client.get(f"{COINEX_V2}/spot/kline", params={"market": market, "period": period, "limit": limit})
+        r.raise_for_status()
+        return r.json().get("data", [])
+
+
+class Paper:
+    def __init__(self, usdt: float = 1000.0, fee_bps: float = 10.0) -> None:
+        self.usdt = usdt
+        self.qty = 0.0
+        self.price = 0.0
+        self.fee_bps = fee_bps
+
+    async def on_price(self, p: float) -> None:
+        self.price = p
+
+    async def buy(self, market: str, usdt_amount: float) -> str:
+        usdt_amount = min(usdt_amount, self.usdt)
+        if usdt_amount <= 0:
+            return "NO_BALANCE"
+        qty = usdt_amount / max(self.price, 1e-9)
+        fee = usdt_amount * (self.fee_bps / 10000.0)
+        self.usdt -= (usdt_amount + fee)
+        self.qty += qty
+        return f"BUY {market} qty={qty:.6f} @ {self.price:.2f} fee={fee:.4f}"
+
+    async def sell(self, market: str, qty: float) -> str:
+        qty = min(qty, self.qty)
+        if qty <= 0:
+            return "NO_POSITION"
+        proceeds = qty * self.price
+        fee = proceeds * (self.fee_bps / 10000.0)
+        self.usdt += (proceeds - fee)
+        self.qty -= qty
+        return f"SELL {market} qty={qty:.6f} @ {self.price:.2f} fee={fee:.4f}"
+
+    def status(self) -> str:
+        equity = self.usdt + self.qty * self.price
+        return f"USDT={self.usdt:.2f} QTY={self.qty:.6f} PX={self.price:.2f} EQ={equity:.2f}"
+
+
+async def main() -> None:
+    token = os.getenv("BOT_TOKEN")
+    if not token:
+        raise RuntimeError("BOT_TOKEN missing")
+    market = os.getenv("DEFAULT_PAIR", "BTCUSDT")
+
+    bot = Bot(token)
+    dp = Dispatcher()
+    cx = CoinExClient()
+    paper = Paper(usdt=10000)
+
+    @dp.message(Command("start"))
+    async def start(message: Message):
+        await message.answer("Simple CoinEx Paper Bot online. /status /buy /sell /grid_on /grid_off")
+
+    @dp.message(Command("status"))
+    async def status(message: Message):
+        await message.answer(paper.status())
+
+    running = {"on": False}
+
+    async def loop_prices():
+        while running["on"]:
+            try:
+                p = await cx.price(market)
+                await paper.on_price(p)
+                await asyncio.sleep(2)
+            except Exception as e:
+                logger.warning("price loop error: %s", e)
+                await asyncio.sleep(2)
+
+    @dp.message(Command("grid_on"))
+    async def grid_on(message: Message):
+        if running["on"]:
+            await message.answer("Already ON")
+            return
+        running["on"] = True
+        asyncio.create_task(loop_prices())
+        await message.answer("Streaming live prices…")
+
+    @dp.message(Command("grid_off"))
+    async def grid_off(message: Message):
+        running["on"] = False
+        await message.answer("Stopped.")
+
+    @dp.message(Command("buy"))
+    async def buy(message: Message):
+        txt = await paper.buy(market, 50)
+        await message.answer(txt)
+
+    @dp.message(Command("sell"))
+    async def sell(message: Message):
+        txt = await paper.sell(market, paper.qty)
+        await message.answer(txt)
+
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
