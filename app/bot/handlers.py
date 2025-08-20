@@ -16,10 +16,13 @@ logger = logging.getLogger(__name__)
 
 
 def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutionGateway, *, grid_service: GridService | None = None):
+    pending_actions: dict[int, str] = {}
+
     @dp.message(Command("start"))
     async def cmd_start(message: Message):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="مشاهده استراتژی", callback_data="show_strategy")],
+            [InlineKeyboardButton(text="تغییر استراتژی/منطق", callback_data="edit_strategy")],
             [InlineKeyboardButton(text="وضعیت", callback_data="show_status"), InlineKeyboardButton(text="تاریخچه", callback_data="show_history")],
         ])
         await message.answer("Grid bot online.", reply_markup=kb)
@@ -102,6 +105,137 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
         ]
         await query.message.answer("\n".join(lines))
         await query.answer()
+
+    def _strategy_menu_kb():
+        if grid_service is None:
+            return InlineKeyboardMarkup(inline_keyboard=[])
+        cfg = grid_service.cfg
+        rsi_label = "خاموش کردن RSI" if cfg.use_rsi_filter else "روشن کردن RSI"
+        ema_label = "خاموش کردن EMA" if cfg.use_ema_filter else "روشن کردن EMA"
+        step_label = "گام: درصدی" if cfg.step_type == "percent" else "گام: ثابت"
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=rsi_label, callback_data="toggle_rsi")],
+            [InlineKeyboardButton(text=ema_label, callback_data="toggle_ema")],
+            [InlineKeyboardButton(text=step_label, callback_data="toggle_step")],
+            [InlineKeyboardButton(text="ویرایش پارامترها", callback_data="edit_params")],
+        ])
+
+    @dp.callback_query(F.data == "edit_strategy")
+    async def cb_edit_strategy(query: CallbackQuery):
+        await query.message.answer(_format_strategy(), reply_markup=_strategy_menu_kb())
+        await query.answer()
+
+    @dp.callback_query(F.data == "toggle_rsi")
+    async def cb_toggle_rsi(query: CallbackQuery):
+        if grid_service is None:
+            await query.answer("Service not available", show_alert=True)
+            return
+        cfg = grid_service.cfg
+        new_cfg = ServiceConfig(
+            pair=cfg.pair,
+            timeframe=cfg.timeframe,
+            fee_bps=cfg.fee_bps,
+            slippage_bps=cfg.slippage_bps,
+            base_order_usdt=cfg.base_order_usdt,
+            lower_price=cfg.lower_price,
+            upper_price=cfg.upper_price,
+            grid_count=cfg.grid_count,
+            step_type=cfg.step_type,
+            use_rsi_filter=not cfg.use_rsi_filter,
+            use_ema_filter=cfg.use_ema_filter,
+        )
+        await grid_service.reconfigure(new_cfg)
+        await query.message.answer("وضعیت RSI تغییر کرد", reply_markup=_strategy_menu_kb())
+        await query.answer()
+
+    @dp.callback_query(F.data == "toggle_ema")
+    async def cb_toggle_ema(query: CallbackQuery):
+        if grid_service is None:
+            await query.answer("Service not available", show_alert=True)
+            return
+        cfg = grid_service.cfg
+        new_cfg = ServiceConfig(
+            pair=cfg.pair,
+            timeframe=cfg.timeframe,
+            fee_bps=cfg.fee_bps,
+            slippage_bps=cfg.slippage_bps,
+            base_order_usdt=cfg.base_order_usdt,
+            lower_price=cfg.lower_price,
+            upper_price=cfg.upper_price,
+            grid_count=cfg.grid_count,
+            step_type=cfg.step_type,
+            use_rsi_filter=cfg.use_rsi_filter,
+            use_ema_filter=not cfg.use_ema_filter,
+        )
+        await grid_service.reconfigure(new_cfg)
+        await query.message.answer("وضعیت EMA تغییر کرد", reply_markup=_strategy_menu_kb())
+        await query.answer()
+
+    @dp.callback_query(F.data == "toggle_step")
+    async def cb_toggle_step(query: CallbackQuery):
+        if grid_service is None:
+            await query.answer("Service not available", show_alert=True)
+            return
+        cfg = grid_service.cfg
+        new_step = "fixed" if cfg.step_type == "percent" else "percent"
+        new_cfg = ServiceConfig(
+            pair=cfg.pair,
+            timeframe=cfg.timeframe,
+            fee_bps=cfg.fee_bps,
+            slippage_bps=cfg.slippage_bps,
+            base_order_usdt=cfg.base_order_usdt,
+            lower_price=cfg.lower_price,
+            upper_price=cfg.upper_price,
+            grid_count=cfg.grid_count,
+            step_type=new_step,
+            use_rsi_filter=cfg.use_rsi_filter,
+            use_ema_filter=cfg.use_ema_filter,
+        )
+        await grid_service.reconfigure(new_cfg)
+        await query.message.answer(f"گام به {('درصدی' if new_step=='percent' else 'ثابت')} تغییر کرد", reply_markup=_strategy_menu_kb())
+        await query.answer()
+
+    @dp.callback_query(F.data == "edit_params")
+    async def cb_edit_params(query: CallbackQuery):
+        pending_actions[query.from_user.id] = "await_params"
+        await query.message.answer("مقادیر را به این شکل بفرست:\n/set_grid lower upper grids base_order_usdt fee_bps slippage_bps\nمثال:\n/set_grid 30000 70000 20 100 10 2")
+        await query.answer()
+
+    @dp.message(F.text)
+    async def maybe_params(message: Message):
+        uid = message.from_user.id if message.from_user else None
+        if uid is None:
+            return
+        if pending_actions.get(uid) != "await_params":
+            return
+        # Allow user to paste either full /set_grid or just values
+        parts = message.text.strip().split()
+        if parts and parts[0] == "/set_grid":
+            parts = parts[1:]
+        if len(parts) != 6:
+            await message.answer("فرمت نادرست است. نمونه: 30000 70000 20 100 10 2")
+            return
+        lower, upper, grids, base_usdt, fee_bps, slip_bps = parts
+        if grid_service is None:
+            await message.answer("Service not available")
+            return
+        cfg = grid_service.cfg
+        new_cfg = ServiceConfig(
+            pair=cfg.pair,
+            timeframe=cfg.timeframe,
+            fee_bps=float(fee_bps),
+            slippage_bps=float(slip_bps),
+            base_order_usdt=float(base_usdt),
+            lower_price=float(lower),
+            upper_price=float(upper),
+            grid_count=int(grids),
+            step_type=cfg.step_type,
+            use_rsi_filter=cfg.use_rsi_filter,
+            use_ema_filter=cfg.use_ema_filter,
+        )
+        await grid_service.reconfigure(new_cfg)
+        pending_actions.pop(uid, None)
+        await message.answer("تنظیمات به‌روزرسانی شد. /strategy")
 
     @dp.message(Command("grid_on"))
     async def cmd_grid_on(message: Message):
