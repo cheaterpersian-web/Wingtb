@@ -1,0 +1,151 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+from aiogram import Bot, Dispatcher, F
+from aiogram.filters import Command
+from aiogram.types import Message
+
+from app.core.storage.db import SQLiteRepo
+from app.execution.paper_exec import PaperExecutionGateway
+from app.services.grid_service import GridService
+from app.services.grid_service import ServiceConfig
+
+
+logger = logging.getLogger(__name__)
+
+
+def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutionGateway, *, grid_service: GridService | None = None):
+    @dp.message(Command("start"))
+    async def cmd_start(message: Message):
+        await message.answer("Grid bot online. Use /status, /grid_on, /grid_off, /history, /export_csv")
+
+    @dp.message(Command("status"))
+    async def cmd_status(message: Message):
+        b = exec_gateway.balances()
+        text = (
+            f"USDT={b['USDT']:.2f}, ASSET_QTY={b['ASSET_QTY']:.6f}, PRICE={b['ASSET_PRICE']:.2f}\n"
+            f"EQUITY={b['EQUITY']:.2f}, PNL_REAL={b['PNL_REALIZED']:.2f}, WIN_RATE={b['WIN_RATE']:.2f}%\n"
+            f"MAX_DD={b['MAX_DRAWDOWN']:.2f}"
+        )
+        await message.answer(text)
+
+    @dp.message(Command("history"))
+    async def cmd_history(message: Message):
+        rows = await repo.fetch_trades(10)
+        if not rows:
+            await message.answer("No trades yet")
+            return
+        lines = [
+            f"{r.ts} {r.side} {r.pair} px={r.price:.2f} qty={r.qty:.6f} fee={r.fee:.4f} pnl={r.pnl_realized:.2f}"
+            for r in rows
+        ]
+        await message.answer("\n".join(lines))
+
+    @dp.message(Command("export_csv"))
+    async def cmd_export(message: Message):
+        path = await repo.export_trades_csv("/workspace/exports/trades.csv")
+        await message.answer(f"Exported to {path}")
+
+    @dp.message(Command("grid_on"))
+    async def cmd_grid_on(message: Message):
+        if grid_service is None:
+            await message.answer("Service not available")
+            return
+        await grid_service.start()
+        await message.answer("Grid started")
+
+    @dp.message(Command("grid_off"))
+    async def cmd_grid_off(message: Message):
+        if grid_service is None:
+            await message.answer("Service not available")
+            return
+        await grid_service.stop()
+        await message.answer("Grid stopped")
+
+    @dp.message(Command("reset_demo"))
+    async def cmd_reset(message: Message):
+        exec_gateway.reset(200000.0)
+        await message.answer("Demo reset.")
+
+    @dp.message(Command("set_pair"))
+    async def cmd_set_pair(message: Message):
+        if grid_service is None:
+            await message.answer("Service not available")
+            return
+        args = message.text.split()
+        if len(args) != 2:
+            await message.answer("Usage: /set_pair BTCUSDT")
+            return
+        pair = args[1].upper()
+        cfg = grid_service.cfg
+        new_cfg = ServiceConfig(
+            pair=pair,
+            timeframe=cfg.timeframe,
+            fee_bps=cfg.fee_bps,
+            slippage_bps=cfg.slippage_bps,
+            base_order_usdt=cfg.base_order_usdt,
+            lower_price=cfg.lower_price,
+            upper_price=cfg.upper_price,
+            grid_count=cfg.grid_count,
+            step_type=cfg.step_type,
+            use_rsi_filter=cfg.use_rsi_filter,
+            use_ema_filter=cfg.use_ema_filter,
+        )
+        await grid_service.reconfigure(new_cfg)
+        await message.answer(f"Pair set to {pair}")
+
+    @dp.message(Command("set_tf"))
+    async def cmd_set_tf(message: Message):
+        if grid_service is None:
+            await message.answer("Service not available")
+            return
+        args = message.text.split()
+        if len(args) != 2:
+            await message.answer("Usage: /set_tf 1m|5m|15m|1h|4h")
+            return
+        tf = args[1]
+        cfg = grid_service.cfg
+        new_cfg = ServiceConfig(
+            pair=cfg.pair,
+            timeframe=tf,
+            fee_bps=cfg.fee_bps,
+            slippage_bps=cfg.slippage_bps,
+            base_order_usdt=cfg.base_order_usdt,
+            lower_price=cfg.lower_price,
+            upper_price=cfg.upper_price,
+            grid_count=cfg.grid_count,
+            step_type=cfg.step_type,
+            use_rsi_filter=cfg.use_rsi_filter,
+            use_ema_filter=cfg.use_ema_filter,
+        )
+        await grid_service.reconfigure(new_cfg)
+        await message.answer(f"TF set to {tf}")
+
+    @dp.message(Command("set_grid"))
+    async def cmd_set_grid(message: Message):
+        if grid_service is None:
+            await message.answer("Service not available")
+            return
+        args = message.text.split()
+        if len(args) != 7:
+            await message.answer("Usage: /set_grid lower upper grids base_order_usdt fee_bps slippage_bps")
+            return
+        _, lower, upper, grids, base_usdt, fee_bps, slip_bps = args
+        cfg = grid_service.cfg
+        new_cfg = ServiceConfig(
+            pair=cfg.pair,
+            timeframe=cfg.timeframe,
+            fee_bps=float(fee_bps),
+            slippage_bps=float(slip_bps),
+            base_order_usdt=float(base_usdt),
+            lower_price=float(lower),
+            upper_price=float(upper),
+            grid_count=int(grids),
+            step_type=cfg.step_type,
+            use_rsi_filter=cfg.use_rsi_filter,
+            use_ema_filter=cfg.use_ema_filter,
+        )
+        await grid_service.reconfigure(new_cfg)
+        await message.answer("Grid updated")
+
