@@ -124,8 +124,8 @@ async def use_strategy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 	await update.message.reply_text("اجرای استراتژی انجام شد.")
 
 
-def _engine_key(user_id: int) -> str:
-	return f"user:{user_id}"
+def _engine_key(chat_id: int) -> str:
+	return f"chat:{chat_id}"
 
 
 async def start_live(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -147,8 +147,8 @@ async def start_live(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 		balance = float(context.args[2]) if len(context.args) >= 3 else default_balance
 		poll_sec = int(context.args[3]) if len(context.args) >= 4 else default_poll
 
-	user_id = update.effective_user.id if update.effective_user else 0
-	key = _engine_key(user_id)
+	chat_id = update.effective_chat.id if update.effective_chat else 0
+	key = _engine_key(chat_id)
 	if key in live_engines:
 		await update.message.reply_text("در حال حاضر یک موتور لایو فعال است. ابتدا آن را متوقف کنید.")
 		return
@@ -189,8 +189,8 @@ async def start_live(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def stop_live(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-	user_id = update.effective_user.id if update.effective_user else 0
-	key = _engine_key(user_id)
+	chat_id = update.effective_chat.id if update.effective_chat else 0
+	key = _engine_key(chat_id)
 	rec = live_engines.pop(key, None)
 	if rec:
 		engine = rec.get("engine")
@@ -205,8 +205,8 @@ async def stop_live(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def live_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-	user_id = update.effective_user.id if update.effective_user else 0
-	key = _engine_key(user_id)
+	chat_id = update.effective_chat.id if update.effective_chat else 0
+	key = _engine_key(chat_id)
 	rec = live_engines.get(key)
 	if not rec:
 		await update.message.reply_text("موتور فعالی پیدا نشد.")
