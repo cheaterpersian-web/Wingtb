@@ -26,8 +26,19 @@ class CoinExClient:
     async def price(self, market: str) -> float:
         r = await self.client.get(f"{COINEX_V2}/spot/ticker", params={"market": market})
         r.raise_for_status()
-        data = r.json().get("data", {})
-        last = data.get("last") or data.get("price")
+        payload = r.json()
+        data = payload.get("data", payload)
+        last = None
+        if isinstance(data, dict):
+            last = data.get("last") or data.get("price")
+        elif isinstance(data, list):
+            for d in data:
+                if isinstance(d, dict) and (not d.get("market") or d.get("market") == market):
+                    last = d.get("last") or d.get("price")
+                    if last is not None:
+                        break
+        if last is None:
+            raise ValueError("ticker: last price not found")
         return float(last)
 
     async def klines(self, market: str, period: str = "5min", limit: int = 100):
