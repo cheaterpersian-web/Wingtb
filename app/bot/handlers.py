@@ -4,7 +4,7 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 from app.core.storage.db import SQLiteRepo
 from app.execution.paper_exec import PaperExecutionGateway
@@ -18,7 +18,11 @@ logger = logging.getLogger(__name__)
 def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutionGateway, *, grid_service: GridService | None = None):
     @dp.message(Command("start"))
     async def cmd_start(message: Message):
-        await message.answer("Grid bot online. Use /status, /grid_on, /grid_off, /history, /export_csv")
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="مشاهده استراتژی", callback_data="show_strategy")],
+            [InlineKeyboardButton(text="وضعیت", callback_data="show_status"), InlineKeyboardButton(text="تاریخچه", callback_data="show_history")],
+        ])
+        await message.answer("Grid bot online.", reply_markup=kb)
 
     @dp.message(Command("status"))
     async def cmd_status(message: Message):
@@ -46,6 +50,58 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
     async def cmd_export(message: Message):
         path = await repo.export_trades_csv("/workspace/exports/trades.csv")
         await message.answer(f"Exported to {path}")
+
+    def _format_strategy() -> str:
+        if grid_service is None:
+            return "Service not available"
+        cfg = grid_service.cfg
+        p = grid_service.strategy.params if hasattr(grid_service, "strategy") else None
+        use_rsi = cfg.use_rsi_filter
+        use_ema = cfg.use_ema_filter
+        return (
+            f"استراتژی: Grid\n"
+            f"جفت: {cfg.pair} | تایم‌فریم: {cfg.timeframe}\n"
+            f"بازه قیمت: {cfg.lower_price:.2f} → {cfg.upper_price:.2f}\n"
+            f"تعداد گرید: {cfg.grid_count} | گام: {cfg.step_type}\n"
+            f"سفارش پایه (USDT): {cfg.base_order_usdt:.2f}\n"
+            f"کارمزد (bps): {cfg.fee_bps:.2f} | اسلیپیج (bps): {cfg.slippage_bps:.2f}\n"
+            f"فیلتر RSI: {'فعال' if use_rsi else 'غیرفعال'} (خرید < 30 ، فروش > 70)\n"
+            f"فیلتر EMA: {'فعال' if use_ema else 'غیرفعال'} (خرید: EMA12 < EMA26 ، فروش: EMA12 > EMA26)\n"
+        )
+
+    @dp.message(Command("strategy"))
+    async def cmd_strategy(message: Message):
+        await message.answer(_format_strategy())
+
+    @dp.callback_query(F.data == "show_strategy")
+    async def cb_show_strategy(query: CallbackQuery):
+        await query.message.answer(_format_strategy())
+        await query.answer()
+
+    @dp.callback_query(F.data == "show_status")
+    async def cb_show_status(query: CallbackQuery):
+        b = exec_gateway.balances()
+        text = (
+            f"USDT={b['USDT']:.2f}, ASSET_QTY={b['ASSET_QTY']:.6f}, PRICE={b['ASSET_PRICE']:.2f}\n"
+            f"EQUITY={b['EQUITY']:.2f}, PNL_REAL={b['PNL_REALIZED']:.2f}, WIN_RATE={b['WIN_RATE']:.2f}%\n"
+            f"MAX_DD={b['MAX_DRAWDOWN']:.2f}"
+        )
+        await query.message.answer(text)
+        await query.answer()
+
+    @dp.callback_query(F.data == "show_history")
+    async def cb_show_history(query: CallbackQuery):
+        rows = await repo.fetch_trades(10)
+        if not rows:
+            await query.message.answer("No trades yet")
+            await query.answer()
+            return
+        lines = [
+            f"{r.ts} {r.side} {r.pair} px={r.price:.2f} qty={r.qty:.6f} fee={r.fee:.4f} pnl={r.pnl_realized:.2f}"
+            for r in rows
+        ]
+        await query.message.answer("\n".join(lines))
+        await query.answer()
 
     @dp.message(Command("grid_on"))
     async def cmd_grid_on(message: Message):
