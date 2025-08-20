@@ -29,9 +29,9 @@ class Settings(BaseSettings):
 
     default_pair: str = os.getenv("DEFAULT_PAIR", "BTCUSDT")
     default_tf: str = os.getenv("DEFAULT_TF", "5m")
-    start_balance_usdt: float = float(os.getenv("START_BALANCE_USDT", 200000))
-    fee_bps: float = float(os.getenv("FEE_BPS", 10))
-    slippage_bps: float = float(os.getenv("SLIPPAGE_BPS", 2))
+    start_balance_usdt: float = float(os.getenv("START_BALANCE_USDT", "200000"))
+    fee_bps: float = float(os.getenv("FEE_BPS", "10"))
+    slippage_bps: float = float(os.getenv("SLIPPAGE_BPS", "2"))
 
     @property
     def initial_grid(self) -> GridConfig:
