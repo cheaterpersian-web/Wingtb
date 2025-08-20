@@ -95,6 +95,13 @@ class GridService:
             return
         self._running = True
         await self.warmup_indicators()
+        # Auto-center using last close or current REST price
+        try:
+            anchor = (self._closes[-1] if self._closes else None) or await self.datafeed.now_price(self.cfg.pair)
+            if hasattr(self.strategy, 'set_anchor_center') and anchor:
+                self.strategy.set_anchor_center(float(anchor))
+        except Exception:
+            pass
 
         async def on_price(price: float) -> None:
             await self.exec.on_price(price)
@@ -163,5 +170,12 @@ class GridService:
                 use_ema_filter=new_cfg.use_ema_filter,
             )
         )
+        # recenter on reconfigure
+        try:
+            anchor = await self.datafeed.now_price(self.cfg.pair)
+            if hasattr(self.strategy, 'set_anchor_center') and anchor:
+                self.strategy.set_anchor_center(float(anchor))
+        except Exception:
+            pass
         await self.start()
 

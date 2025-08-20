@@ -57,6 +57,10 @@ class GridStrategy:
             self.state.buy_levels = [center - (i + 1) * step for i in range(grid_size)]
             self.state.sell_levels = [center + (i + 1) * step for i in range(grid_size)]
 
+    def set_anchor_center(self, center: float) -> None:
+        self.state.anchor_center = None
+        self._ensure_levels(center)
+
     def on_tick(self, price: float, rsi: Optional[float] = None, fast_ema: Optional[float] = None, slow_ema: Optional[float] = None) -> List[GridIntent]:
         intents: List[GridIntent] = []
         last = self.state.last_price

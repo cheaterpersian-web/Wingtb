@@ -26,6 +26,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             [InlineKeyboardButton(text="معامله تستی", callback_data="test_trade"), InlineKeyboardButton(text="فروش تستی", callback_data="test_sell")],
             [InlineKeyboardButton(text="وضعیت", callback_data="show_status"), InlineKeyboardButton(text="تاریخچه", callback_data="show_history")],
             [InlineKeyboardButton(text="پاک کردن تاریخچه", callback_data="clear_history")],
+            [InlineKeyboardButton(text="روشن کردن گرید", callback_data="grid_on_btn")],
         ])
         await message.answer("Grid bot online.", reply_markup=kb)
 
@@ -351,6 +352,22 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             f"USDT={b['USDT']:.2f}, ASSET_QTY={b['ASSET_QTY']:.6f}, PRICE={b['ASSET_PRICE']:.2f}\n"
             f"EQUITY={b['EQUITY']:.2f}"
         )
+
+    @dp.callback_query(F.data == "grid_on_btn")
+    async def cb_grid_on(query: CallbackQuery):
+        if grid_service is None:
+            await query.answer("Service not available", show_alert=True)
+            return
+        await query.answer("در حال روشن کردن…")
+        async def run():
+            await grid_service.start()
+            b = exec_gateway.balances()
+            await query.message.answer("Grid started\n" + _format_strategy())
+            await query.message.answer(
+                f"USDT={b['USDT']:.2f}, ASSET_QTY={b['ASSET_QTY']:.6f}, PRICE={b['ASSET_PRICE']:.2f}\n"
+                f"EQUITY={b['EQUITY']:.2f}"
+            )
+        asyncio.create_task(run())
 
     @dp.message(Command("grid_off"))
     async def cmd_grid_off(message: Message):
