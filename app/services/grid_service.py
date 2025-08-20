@@ -55,6 +55,7 @@ class GridService:
         )
         self._running = False
         self._task: Optional[asyncio.Task] = None
+        self._rest_refresh_task: Optional[asyncio.Task] = None
         self._closes: deque[float] = deque(maxlen=500)
         self._fast_ema_series: list[float] | None = None
         self._slow_ema_series: list[float] | None = None
@@ -117,6 +118,24 @@ class GridService:
 
         self._task = asyncio.create_task(runner())
 
+        async def rest_refresher():
+            # Periodically fetch REST price as a fallback to keep engine updated
+            while self._running:
+                try:
+                    px = await self.datafeed.now_price(self.cfg.pair)
+                    if px and px > 0:
+                        await self.exec.on_price(px)
+                        self._closes.append(px)
+                        closes_list = list(self._closes)
+                        self._fast_ema_series = compute_ema(closes_list, 12)
+                        self._slow_ema_series = compute_ema(closes_list, 26)
+                        self._rsi_series = compute_rsi(closes_list, 14)
+                except Exception:
+                    pass
+                await asyncio.sleep(15)
+
+        self._rest_refresh_task = asyncio.create_task(rest_refresher())
+
     async def stop(self) -> None:
         self._running = False
         if self._task:
@@ -124,6 +143,11 @@ class GridService:
             with contextlib.suppress(Exception):
                 await self._task
             self._task = None
+        if self._rest_refresh_task:
+            self._rest_refresh_task.cancel()
+            with contextlib.suppress(Exception):
+                await self._rest_refresh_task
+            self._rest_refresh_task = None
 
     async def reconfigure(self, new_cfg: ServiceConfig) -> None:
         await self.stop()

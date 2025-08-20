@@ -128,12 +128,10 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             await query.answer("Service not available", show_alert=True)
             return
         cfg = grid_service.cfg
-        price = exec_gateway.last_price if getattr(exec_gateway, 'last_price', 0.0) else 0.0
-        if price <= 0.0:
-            try:
-                price = await grid_service.datafeed.now_price(cfg.pair)  # type: ignore[attr-defined]
-            except Exception:
-                price = 0.0
+        try:
+            price = await grid_service.datafeed.now_price(cfg.pair)  # type: ignore[attr-defined]
+        except Exception:
+            price = exec_gateway.last_price if getattr(exec_gateway, 'last_price', 0.0) else 0.0
         if price <= 0.0:
             await query.answer("قیمت در دسترس نیست", show_alert=True)
             return
@@ -163,12 +161,10 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             await query.answer("Service not available", show_alert=True)
             return
         cfg = grid_service.cfg
-        price = exec_gateway.last_price if getattr(exec_gateway, 'last_price', 0.0) else 0.0
-        if price <= 0.0:
-            try:
-                price = await grid_service.datafeed.now_price(cfg.pair)  # type: ignore[attr-defined]
-            except Exception:
-                price = 0.0
+        try:
+            price = await grid_service.datafeed.now_price(cfg.pair)  # type: ignore[attr-defined]
+        except Exception:
+            price = exec_gateway.last_price if getattr(exec_gateway, 'last_price', 0.0) else 0.0
         if price <= 0.0:
             await query.answer("قیمت در دسترس نیست", show_alert=True)
             return
