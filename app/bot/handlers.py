@@ -56,10 +56,10 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
         path = await repo.export_trades_csv("/workspace/exports/trades.csv")
         await message.answer(f"Exported to {path}")
 
-    def _format_strategy() -> str:
+    def _format_strategy(cfg_override: ServiceConfig | None = None) -> str:
         if grid_service is None:
             return "Service not available"
-        cfg = grid_service.cfg
+        cfg = cfg_override or grid_service.cfg
         p = grid_service.strategy.params if hasattr(grid_service, "strategy") else None
         use_rsi = cfg.use_rsi_filter
         use_ema = cfg.use_ema_filter
@@ -116,10 +116,10 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             await query.message.answer("تاریخچه پاک شد.")
         asyncio.create_task(run())
 
-    def _strategy_menu_kb():
+    def _strategy_menu_kb(cfg_override: ServiceConfig | None = None):
         if grid_service is None:
             return InlineKeyboardMarkup(inline_keyboard=[])
-        cfg = grid_service.cfg
+        cfg = cfg_override or grid_service.cfg
         rsi_label = "خاموش کردن RSI" if cfg.use_rsi_filter else "روشن کردن RSI"
         ema_label = "خاموش کردن EMA" if cfg.use_ema_filter else "روشن کردن EMA"
         step_label = "گام: درصدی" if cfg.step_type == "percent" else "گام: ثابت"
@@ -227,12 +227,14 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
         )
         await query.answer("در حال به‌روزرسانی…")
         async def apply():
+            # update local state early so UI reflects immediately
+            grid_service.cfg = new_cfg  # type: ignore[attr-defined]
             await grid_service.reconfigure(new_cfg)
             # try to update the same message UI
             try:
-                await query.message.edit_text(_format_strategy(), reply_markup=_strategy_menu_kb())
+                await query.message.edit_text(_format_strategy(new_cfg), reply_markup=_strategy_menu_kb(new_cfg))
             except Exception:
-                await query.message.answer("وضعیت RSI تغییر کرد", reply_markup=_strategy_menu_kb())
+                await query.message.answer("وضعیت RSI تغییر کرد", reply_markup=_strategy_menu_kb(new_cfg))
         asyncio.create_task(apply())
 
     @dp.callback_query(F.data == "toggle_ema")
@@ -256,11 +258,12 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
         )
         await query.answer("در حال به‌روزرسانی…")
         async def apply():
+            grid_service.cfg = new_cfg  # type: ignore[attr-defined]
             await grid_service.reconfigure(new_cfg)
             try:
-                await query.message.edit_text(_format_strategy(), reply_markup=_strategy_menu_kb())
+                await query.message.edit_text(_format_strategy(new_cfg), reply_markup=_strategy_menu_kb(new_cfg))
             except Exception:
-                await query.message.answer("وضعیت EMA تغییر کرد", reply_markup=_strategy_menu_kb())
+                await query.message.answer("وضعیت EMA تغییر کرد", reply_markup=_strategy_menu_kb(new_cfg))
         asyncio.create_task(apply())
 
     @dp.callback_query(F.data == "toggle_step")
@@ -285,11 +288,12 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
         )
         await query.answer("در حال به‌روزرسانی…")
         async def apply():
+            grid_service.cfg = new_cfg  # type: ignore[attr-defined]
             await grid_service.reconfigure(new_cfg)
             try:
-                await query.message.edit_text(_format_strategy(), reply_markup=_strategy_menu_kb())
+                await query.message.edit_text(_format_strategy(new_cfg), reply_markup=_strategy_menu_kb(new_cfg))
             except Exception:
-                await query.message.answer(f"گام به {('درصدی' if new_step=='percent' else 'ثابت')} تغییر کرد", reply_markup=_strategy_menu_kb())
+                await query.message.answer(f"گام به {('درصدی' if new_step=='percent' else 'ثابت')} تغییر کرد", reply_markup=_strategy_menu_kb(new_cfg))
         asyncio.create_task(apply())
 
     @dp.callback_query(F.data == "edit_params")
