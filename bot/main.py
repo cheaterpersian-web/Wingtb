@@ -188,14 +188,15 @@ def _engine_key(user_id: int) -> str:
 
 async def start_live(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 	if update.message and update.message.text and update.message.text.strip().lower() in {"▶️ start live", "start live"}:
-		await update.message.reply_text("مثال: /start_live BTCUSDT 1hour 200000")
+		await update.message.reply_text("مثال: /start_live BTCUSDT 1hour 200000 [poll_sec]")
 		return
 	if not context.args:
-		await update.message.reply_text("مثال: /start_live BTCUSDT 1hour 200000")
+		await update.message.reply_text("مثال: /start_live BTCUSDT 1hour 200000 [poll_sec]")
 		return
 	market = context.args[0].upper()
 	period = context.args[1] if len(context.args) >= 2 else "1hour"
 	balance = float(context.args[2]) if len(context.args) >= 3 else 200000.0
+	poll_sec = int(context.args[3]) if len(context.args) >= 4 else 5
 	user_id = update.effective_user.id if update.effective_user else 0
 	key = _engine_key(user_id)
 	if key in live_engines:
@@ -212,11 +213,11 @@ async def start_live(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 		lower_pct=0.03,
 		quote_per_order=20.0,
 		recenter_on_break=True,
-		poll_sec=5,
+		poll_sec=poll_sec,
 	)
 	live_engines[key] = engine
 	engine.start()
-	await update.message.reply_text(f"Live Grid demo شروع شد روی {market} با بالانس {balance:.2f} USDT (6 buy / 6 sell)")
+	await update.message.reply_text(f"Live Grid demo شروع شد روی {market} با بالانس {balance:.2f} USDT (6 buy / 6 sell) | poll={poll_sec}s")
 
 
 async def stop_live(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -238,17 +239,42 @@ async def live_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 		await update.message.reply_text("موتور فعالی پیدا نشد.")
 		return
 	s = engine.snapshot()
+	# Market data from CoinEx
+	mkt = s.get('market') if isinstance(s, dict) else None
+	prd = s.get('period') if isinstance(s, dict) else None
+	t_row = client.get_spot_ticker(mkt) if mkt else None
+	k_rows = client.get_kline(market=mkt, period=prd, limit=5) if (mkt and prd) else []
+	lines: List[str] = []
 	if isinstance(s, dict) and s.get("type") == "grid":
-		await update.message.reply_text(
-			f"Live Status (Grid):\nMarket: {s['market']}\nPeriod: {s['period']}\n"
-			f"Balance: {s['balance_usdt']:.2f} USDT\nBaseQty: {s['base_qty']:.6f} avg={s['avg_cost']:.2f}\n"
+		lines.append(
+			f"وضعیت لایو (Grid)\nبازار: {s['market']} | تایم‌فریم: {s['period']}\n"
+			f"بالانس: {s['balance_usdt']:.2f} USDT | BaseQty: {s['base_qty']:.6f} @ {s['avg_cost']:.2f}\n"
 			f"Open Buys: {s['open_buys']} | Open Sells: {s['open_sells']} | Trades: {s['trades']}"
 		)
 	else:
-		await update.message.reply_text(
-			f"Live Status:\nMarket: {s['market']}\nPeriod: {s['period']}\nBalance: {s['balance_usdt']:.2f} USDT\n"
-			f"Position: qty={s['position']['qty']:.6f} avg={s['position']['avg_price']:.2f}\nTrades: {s['trades']}"
+		lines.append(
+			f"وضعیت لایو\nبازار: {s['market']} | تایم‌فریم: {s['period']}\n"
+			f"بالانس: {s['balance_usdt']:.2f} USDT | پوزیشن: qty={s['position']['qty']:.6f} avg={s['position']['avg_price']:.2f} | معاملات: {s['trades']}"
 		)
+	# Ticker info
+	if t_row:
+		try:
+			last = float(t_row.get('last'))
+			open_p = float(t_row.get('open'))
+			high = float(t_row.get('high'))
+			low = float(t_row.get('low'))
+			vol = float(t_row.get('volume'))
+			val = float(t_row.get('value')) if t_row.get('value') is not None else 0.0
+			chg = (last / open_p - 1.0) * 100.0 if open_p else 0.0
+			lines.append(f"\nCoinEx Ticker: last={last} | open24h={open_p} | high24h={high} | low24h={low} | vol={vol:.2f} | val={val:.2f} | chg24h={chg:.2f}%")
+		except Exception:
+			pass
+	# Recent candles
+	if k_rows:
+		lines.append("\nآخرین کندل‌ها:")
+		for r in k_rows[-3:]:
+			lines.append(f"t={r.get('created_at')} o={r.get('open')} h={r.get('high')} l={r.get('low')} c={r.get('close')} v={r.get('volume')}")
+	await update.message.reply_text("\n".join(lines))
 
 
 def build_application() -> Application:
@@ -293,7 +319,7 @@ def build_application() -> Application:
 			await update.message.reply_text("مثال: /volatility BTCUSDT 1hour 500")
 			return
 		if l == "▶️ start live" or l == "start live":
-			await update.message.reply_text("مثال: /start_live BTCUSDT 1hour 200000")
+			await update.message.reply_text("مثال: /start_live BTCUSDT 1hour 200000 [poll_sec]")
 			return
 		if l == "⏹ stop live" or l == "stop live":
 			await stop_live(update, context)
