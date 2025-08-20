@@ -137,3 +137,13 @@ class SQLiteRepo:
                 writer.writerow([r["ts"], r["pair"], r["side"], r["price"], r["qty"], r["fee"], r["pnl_realized"]])
         return str(dest)
 
+    async def clear_history(self) -> None:
+        await asyncio.to_thread(self._clear_history_sync)
+
+    def _clear_history_sync(self) -> None:
+        assert self._conn is not None
+        cur = self._conn.cursor()
+        cur.execute("DELETE FROM trades")
+        cur.execute("DELETE FROM balances")
+        self._conn.commit()
+

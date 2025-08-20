@@ -25,6 +25,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             [InlineKeyboardButton(text="تغییر استراتژی/منطق", callback_data="edit_strategy")],
             [InlineKeyboardButton(text="معامله تستی", callback_data="test_trade"), InlineKeyboardButton(text="فروش تستی", callback_data="test_sell")],
             [InlineKeyboardButton(text="وضعیت", callback_data="show_status"), InlineKeyboardButton(text="تاریخچه", callback_data="show_history")],
+            [InlineKeyboardButton(text="پاک کردن تاریخچه", callback_data="clear_history")],
         ])
         await message.answer("Grid bot online.", reply_markup=kb)
 
@@ -106,6 +107,14 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
         ]
         await query.message.answer("\n".join(lines))
         await query.answer()
+
+    @dp.callback_query(F.data == "clear_history")
+    async def cb_clear_history(query: CallbackQuery):
+        await query.answer("در حال پاک‌سازی…")
+        async def run():
+            await repo.clear_history()
+            await query.message.answer("تاریخچه پاک شد.")
+        asyncio.create_task(run())
 
     def _strategy_menu_kb():
         if grid_service is None:
