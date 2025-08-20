@@ -12,22 +12,26 @@ logger = logging.getLogger(__name__)
 
 
 class CoinExWS:
-    WS_URL = "wss://socket.coinex.com/v2/spot"
+    # Try v2 first; if fails, reconnect using v1 path
+    WS_URLS = ["wss://socket.coinex.com/v2/spot", "wss://socket.coinex.com/v1/spot"]
 
     def __init__(self) -> None:
         self._ws = None
         self._lock = asyncio.Lock()
 
     async def subscribe_ticker(self, market: str, on_price: Callable[[float], Awaitable[None]]) -> None:
+        url_idx = 0
         while True:
+            url = self.WS_URLS[url_idx % len(self.WS_URLS)]
             try:
-                async with websockets.connect(self.WS_URL, max_queue=1024) as ws:
+                async with websockets.connect(url, max_queue=1024) as ws:
                     self._ws = ws
                     await self._send_sub(ws, market)
                     async for msg in ws:
                         await self._handle_message(msg, on_price)
             except Exception as e:
-                logger.warning("WS disconnected: %s, reconnecting soon", e)
+                logger.warning("WS disconnected from %s: %s, switching endpoint", url, e)
+                url_idx += 1
                 await asyncio.sleep(1.0)
 
     async def _send_sub(self, ws, market: str) -> None:
