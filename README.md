@@ -38,6 +38,9 @@ DEFAULT_TF=5m
 START_BALANCE_USDT=200000
 FEE_BPS=10
 SLIPPAGE_BPS=2
+WS_PING_SECONDS=25
+WS_READ_TIMEOUT_SECONDS=30
+WS_BACKOFF_MAX_SECONDS=30
 ```
 
 ## Project Structure
@@ -63,6 +66,12 @@ scripts/
 - Implement `CoinExExecutionGateway` with v2 auth headers and signatures
 - Add risk controls and kill switch
 - Keep interfaces stable to swap modules via config
+
+## WebSocket Stability (CoinEx v2 Spot)
+- App-level heartbeat: sends `{"method":"server.ping","params":{},"id":999}` every `WS_PING_SECONDS` with jitter.
+- Read timeout: if no frames for `WS_READ_TIMEOUT_SECONDS`, sends a ping; if no message for > 60s total, reconnects.
+- Compression: permessage-deflate enabled; binary frames are decompressed via zlib.
+- Reconnect: exponential backoff (1s→2s→4s... capped by `WS_BACKOFF_MAX_SECONDS`) with small jitter, and deterministic resubscribe.
 
 ## License
 MIT
