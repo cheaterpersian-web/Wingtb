@@ -5,10 +5,10 @@ import json
 import logging
 import os
 import time
-from typing import Awaitable, Callable, List, Dict, Any
+from typing import List, Dict, Any
 
 import httpx
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
 from aiogram.types import Message
 from dotenv import load_dotenv
@@ -19,43 +19,6 @@ logger = logging.getLogger("simple")
 
 
 COINEX_V2 = "https://api.coinex.com/v2"
-
-
-class CoinExClient:
-	def __init__(self) -> None:
-		self.client = httpx.AsyncClient(timeout=10)
-
-	async def price(self, market: str) -> float:
-		r = await self.client.get(f"{COINEX_V2}/spot/ticker", params={"market": market})
-		r.raise_for_status()
-		payload = r.json()
-		data = payload.get("data", payload)
-		last = None
-		if isinstance(data, dict):
-			last = data.get("last") or data.get("price")
-			if last is None and isinstance(data.get("ticker"), dict):
-				d = data["ticker"]
-				last = d.get("last") or d.get("price")
-		elif isinstance(data, list):
-			for d in data:
-				if not isinstance(d, dict):
-					continue
-				if (not d.get("market") or d.get("market") == market):
-					last = d.get("last") or d.get("price")
-					if last is None and isinstance(d.get("ticker"), dict):
-						td = d["ticker"]
-						last = td.get("last") or td.get("price")
-					if last is not None:
-						break
-		if last is None:
-			raise ValueError("ticker: last price not found")
-		return float(last)
-
-	async def klines(self, market: str, period: str = "5min", limit: int = 100):
-		r = await self.client.get(f"{COINEX_V2}/spot/kline", params={"market": market, "period": period, "limit": limit})
-		r.raise_for_status()
-		data = r.json().get("data", [])
-		return data
 
 
 def ema(values: List[float], period: int) -> List[float]:
@@ -119,8 +82,120 @@ def atr_series(klines: List[Dict[str, Any]], period: int = 14) -> List[float]:
 	return atr_vals
 
 
+def normalize_klines(raw: Any) -> List[Dict[str, float]]:
+	data = raw
+	if isinstance(raw, dict):
+		data = raw.get("data", raw)
+	out: List[Dict[str, float]] = []
+	if not isinstance(data, list):
+		data = [data]
+	for c in data:
+		close_v = None
+		high_v = None
+		low_v = None
+		if isinstance(c, dict):
+			for k in ("close", "c", "last", "price"):
+				v = c.get(k)
+				if v is not None:
+					try:
+						close_v = float(v)
+					except Exception:
+						pass
+					break
+			for k in ("high", "h", "max"):
+				v = c.get(k)
+				if v is not None:
+					try:
+						high_v = float(v)
+					except Exception:
+						pass
+					break
+			for k in ("low", "l", "min"):
+				v = c.get(k)
+				if v is not None:
+					try:
+						low_v = float(v)
+					except Exception:
+						pass
+					break
+			if close_v is None:
+				for key in ("values", "kline", "list"):
+					vals = c.get(key)
+					if isinstance(vals, (list, tuple)) and len(vals) >= 4:
+						try:
+							ns = [float(x) for x in vals]
+							close_v = ns[-2] if len(ns) >= 5 else ns[-1]
+							window = ns[1:5] if len(ns) >= 5 else ns
+							high_v = max(window) if high_v is None else high_v
+							low_v = min(window) if low_v is None else low_v
+						except Exception:
+							pass
+		elif isinstance(c, (list, tuple)):
+			try:
+				ns = [float(x) for x in c]
+				if len(ns) >= 4:
+					close_v = ns[-2] if len(ns) >= 5 else ns[-1]
+					window = ns[1:5] if len(ns) >= 5 else ns
+					high_v = max(window)
+					low_v = min(window)
+			except Exception:
+				pass
+		elif isinstance(c, str):
+			try:
+				obj = json.loads(c)
+				for d in normalize_klines(obj):
+					out.append(d)
+				continue
+			except Exception:
+				pass
+		if close_v is None:
+			continue
+		if high_v is None:
+			high_v = close_v
+		if low_v is None:
+			low_v = close_v
+		out.append({"close": float(close_v), "high": float(high_v), "low": float(low_v)})
+	return out
+
+
+class CoinExClient:
+	def __init__(self) -> None:
+		self.client = httpx.AsyncClient(timeout=12)
+
+	async def price(self, market: str) -> float:
+		r = await self.client.get(f"{COINEX_V2}/spot/ticker", params={"market": market})
+		r.raise_for_status()
+		payload = r.json()
+		data = payload.get("data", payload)
+		last = None
+		if isinstance(data, dict):
+			last = data.get("last") or data.get("price")
+			if last is None and isinstance(data.get("ticker"), dict):
+				d = data["ticker"]
+				last = d.get("last") or d.get("price")
+		elif isinstance(data, list):
+			for d in data:
+				if not isinstance(d, dict):
+					continue
+				if (not d.get("market") or d.get("market") == market):
+					last = d.get("last") or d.get("price")
+					if last is None and isinstance(d.get("ticker"), dict):
+						td = d["ticker"]
+						last = td.get("last") or td.get("price")
+					if last is not None:
+						break
+		if last is None:
+			raise ValueError("ticker: last price not found")
+		return float(last)
+
+	async def klines(self, market: str, period: str = "5min", limit: int = 100) -> List[Dict[str, float]]:
+		r = await self.client.get(f"{COINEX_V2}/spot/kline", params={"market": market, "period": period, "limit": limit})
+		r.raise_for_status()
+		return normalize_klines(r.json())
+
+
 class Paper:
-	def __init__(self, usdt: float = 1000.0, fee_bps: float = 10.0) -> None:
+	def __init__(self, usdt: float = 10000.0, fee_bps: float = 10.0) -> None:
 		self.usdt = usdt
 		self.qty = 0.0
 		self.price = 0.0
