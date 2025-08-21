@@ -274,7 +274,7 @@ async def main() -> None:
 		scope = parts[1].lower() if len(parts) > 1 else "day"
 		if scope not in ("hour", "day", "month"):
 			scope = "day"
-		period_map = {"hour": ("1min", 60), "day": ("5min", 288), "month": ("5min", 1000)}
+		period_map = {"hour": ("1min", 120), "day": ("5min", 576), "month": ("5min", 2000)}
 		period, limit = period_map[scope]
 		try:
 			kl = await cx.klines(market, period, limit)
@@ -285,60 +285,75 @@ async def main() -> None:
 			a_list = atr_series(kl, 14)
 			start = max(30, 1)
 			usdt = 10000.0
-			qty = 0.0
 			fee_bps = 10.0
-			cost_basis = 0.0
+			base_usdt = 50.0
+			open_lots: List[Dict[str, float]] = []
 			wins = 0
 			closed = 0
 			trades = 0
 			last_idx = -9999
 			cooldown_bars = 2
-			base_usdt = 50.0
 			for i in range(start, len(closes)):
 				px = closes[i]
 				center_bt = slow[i] if slow else px
 				atr_i = a_list[i] if i < len(a_list) else 0.0
 				stepv = max(min(atr_i if atr_i > 0 else center_bt * step_pct, center_bt * 0.006), center_bt * 0.001)
-				if i - last_idx < cooldown_bars:
-					continue
-				for j in range(grid_per_side):
-					buy_lv = center_bt - stepv * (j + 1)
-					sell_lv = center_bt + stepv * (j + 1)
-					if px <= buy_lv and r[i] <= 70 and fast[i] >= slow[i]:
-						amount = min(base_usdt, usdt)
-						if amount > 0:
-							q = amount / max(px, 1e-9)
-							fee = amount * (fee_bps / 10000.0)
-							usdt -= (amount + fee)
-							qty += q
-							cost_basis += (amount + fee)
-							trades += 1
-							last_idx = i
-						break
-					if px >= sell_lv and r[i] >= 30 and fast[i] <= slow[i] and qty > 0:
-						q = min(qty, base_usdt / max(px, 1e-9))
-						notional = q * px
+				# exits
+				new_open: List[Dict[str, float]] = []
+				for lot in open_lots:
+					trail = lot.get("trail", 0.0)
+					if px > lot["entry"] + atr_i * 0.5:
+						trail = max(trail, px - atr_i * 0.5)
+						lot["trail"] = trail
+					hit_tp = px >= lot["tp"]
+					hit_sl = px <= lot["sl"]
+					hit_tr = trail > 0 and px <= trail
+					if hit_tp or hit_sl or hit_tr:
+						notional = lot["qty"] * px
 						fee = notional * (fee_bps / 10000.0)
 						proceeds = notional - fee
-						avg_cost = (cost_basis / qty) if qty > 0 else 0.0
-						cost_sold = avg_cost * q
-						realized = proceeds - cost_sold
+						realized = proceeds - lot["cost"]
 						usdt += proceeds
-						qty -= q
-						cost_basis -= cost_sold
 						closed += 1
+						trades += 1
 						if realized > 0:
 							wins += 1
-						trades += 1
-						last_idx = i
-						break
+					else:
+						new_open.append(lot)
+				open_lots = new_open
+				# entries
+				if i - last_idx >= cooldown_bars and r[i] <= 70 and fast[i] >= slow[i]:
+					for j in range(grid_per_side):
+						buy_lv = center_bt - stepv * (j + 1)
+						if px <= buy_lv and usdt > base_usdt:
+							amount = base_usdt
+							q = amount / max(px, 1e-9)
+							fee_in = amount * (fee_bps / 10000.0)
+							cost = amount + fee_in
+							usdt -= cost
+							# per lot TP/SL
+							tp = px + atr_i * 1.0
+							sl = px - atr_i * 0.8
+							open_lots.append({"qty": q, "entry": px, "cost": cost, "tp": tp, "sl": sl, "trail": 0.0})
+							trades += 1
+							last_idx = i
+							break
+			# finalize
 			final_px = closes[-1]
-			equity = usdt + qty * final_px
+			for lot in open_lots:
+				notional = lot["qty"] * final_px
+				fee = notional * (fee_bps / 10000.0)
+				proceeds = notional - fee
+				realized = proceeds - lot["cost"]
+				usdt += proceeds
+				closed += 1
+				if realized > 0:
+					wins += 1
 			win_rate = (wins / closed * 100.0) if closed else 0.0
 			await message.answer(
 				f"Backtest ({scope})\n"
 				f"Trades={trades} | Closed={closed} | Wins={wins} | WinRate={win_rate:.2f}%\n"
-				f"Final Equity={equity:.2f} | USDT={usdt:.2f} | QTY={qty:.8f}"
+				f"Final Equity={usdt:.2f}"
 			)
 		except Exception as e:
 			await message.answer(f"ERR backtest: {e}")
