@@ -351,8 +351,8 @@ async def main() -> None:
 		period, limit = period_map[scope]
 		try:
 			kl = await cx.klines(market, period, limit)
-			if not kl or len(kl) < 50:
-				await message.answer("ERR backtest: insufficient data; try /backtest day")
+			if not kl:
+				await message.answer("ERR backtest: no klines returned")
 				return
 			closes = [float(k.get("close") or 0.0) for k in kl]
 			if not closes:
@@ -374,7 +374,7 @@ async def main() -> None:
 			cooldown_bars = 2
 			for i in range(start, len(closes)):
 				px = closes[i]
-				center_bt = slow[i] if slow else px
+				center_bt = slow[i] if i < len(slow) else px
 				atr_i = a_list[i] if i < len(a_list) else 0.0
 				stepv = max(min(atr_i if atr_i > 0 else center_bt * step_pct, center_bt * 0.006), center_bt * 0.001)
 				# exits
@@ -401,7 +401,10 @@ async def main() -> None:
 						new_open.append(lot)
 				open_lots = new_open
 				# entries
-				if i - last_idx >= cooldown_bars and r[i] <= 35 and fast[i] < slow[i]:
+				r_i = r[i] if i < len(r) else 50.0
+				f_i = fast[i] if i < len(fast) else px
+				s_i = slow[i] if i < len(slow) else px
+				if i - last_idx >= cooldown_bars and r_i <= 35 and f_i < s_i:
 					for j in range(grid_per_side):
 						buy_lv = center_bt - stepv * (j + 1)
 						if px <= buy_lv and usdt > base_usdt:
@@ -444,8 +447,8 @@ async def main() -> None:
 		period_map = {"hour": ("1min", 120), "day": ("5min", 576), "15d": ("15min", 1440), "month": ("5min", 2000)}
 		period, limit = period_map.get(scope, ("5min", 576))
 		kl = await cx.klines(market, period, limit)
-		if not kl or len(kl) < 50:
-			await message.answer("ERR optimize: insufficient data; try day scope")
+		if not kl:
+			await message.answer("ERR optimize: no klines returned")
 			return
 		closes = [float(k.get("close") or 0.0) for k in kl]
 		if not closes:
@@ -475,7 +478,7 @@ async def main() -> None:
 							cooldown_bars = 2
 							for i in range(start, len(closes)):
 								px = closes[i]
-								center_bt = slow_all[i] if slow_all else px
+								center_bt = slow_all[i] if i < len(slow_all) else px
 								atr_i = atr_all[i] if i < len(atr_all) else 0.0
 								stepv = max(min(atr_i if atr_i > 0 else center_bt * step_pct, center_bt * 0.006), center_bt * 0.001)
 								# exits
@@ -502,7 +505,10 @@ async def main() -> None:
 										new_open.append(lot)
 								open_lots = new_open
 								# entries
-								if i - last_idx >= cooldown_bars and rsi_all[i] <= buy_rsi_thr and fast_all[i] < slow_all[i]:
+								r_i = rsi_all[i] if i < len(rsi_all) else 50.0
+								f_i = fast_all[i] if i < len(fast_all) else px
+								s_i = slow_all[i] if i < len(slow_all) else px
+								if i - last_idx >= cooldown_bars and r_i <= buy_rsi_thr and f_i < s_i:
 									for j in range(grids):
 										buy_lv = center_bt - stepv * (j + 1)
 										if px <= buy_lv and usdt > 50.0:
