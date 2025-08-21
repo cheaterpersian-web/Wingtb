@@ -100,10 +100,13 @@ async def main() -> None:
 	dp = Dispatcher()
 	cx = CoinExClient()
 	paper = Paper(usdt=10000)
+	grid_per_side = 6
+	step_pct = 0.005
+	anchor_px: float = 0.0
 
 	@dp.message(Command("start"))
 	async def start(message: Message):
-		await message.answer("Simple CoinEx Paper Bot online. /status /buy /sell /grid_on /grid_off /price")
+		await message.answer("Simple CoinEx Paper Bot online. /status /buy /sell /grid_on /grid_off /price /grid_levels")
 
 	@dp.message(Command("status"))
 	async def status(message: Message):
@@ -120,12 +123,23 @@ async def main() -> None:
 
 	running = {"on": False}
 
-	async def loop_prices():
+	async def loop_prices(chat_id: int):
 		while running["on"]:
 			try:
 				p = await cx.price(market)
 				await paper.on_price(p)
 				logger.info("price updated: %.8f", p)
+				# grid signal
+				if anchor_px > 0:
+					for i in range(grid_per_side):
+						buy_lv = anchor_px * (1.0 - step_pct * (i + 1))
+						sell_lv = anchor_px * (1.0 + step_pct * (i + 1))
+						if p <= buy_lv:
+							await bot.send_message(chat_id, f"✅ BUY signal {market} @ {p:.8f} (lvl={buy_lv:.8f})")
+							break
+						if p >= sell_lv:
+							await bot.send_message(chat_id, f"✅ SELL signal {market} @ {p:.8f} (lvl={sell_lv:.8f})")
+							break
 				await asyncio.sleep(2)
 			except Exception as e:
 				logger.warning("price loop error: %s", e)
@@ -136,14 +150,27 @@ async def main() -> None:
 		if running["on"]:
 			await message.answer("Already ON")
 			return
+		nonlocal anchor_px
+		anchor_px = await cx.price(market)
+		await paper.on_price(anchor_px)
 		running["on"] = True
-		asyncio.create_task(loop_prices())
-		await message.answer("Streaming live prices…")
+		asyncio.create_task(loop_prices(message.chat.id))
+		await message.answer(f"Streaming live prices… anchor={anchor_px:.8f}")
 
 	@dp.message(Command("grid_off"))
 	async def grid_off(message: Message):
 		running["on"] = False
 		await message.answer("Stopped.")
+
+	@dp.message(Command("grid_levels"))
+	async def grid_levels(message: Message):
+		if anchor_px <= 0:
+			await message.answer("Grid not started. /grid_on")
+			return
+		levels_down = [anchor_px * (1.0 - step_pct * (i + 1)) for i in range(grid_per_side)]
+		levels_up = [anchor_px * (1.0 + step_pct * (i + 1)) for i in range(grid_per_side)]
+		text = "Buy levels:\n" + "\n".join(f"{lv:.8f}" for lv in levels_down) + "\nSell levels:\n" + "\n".join(f"{lv:.8f}" for lv in levels_up)
+		await message.answer(text)
 
 	@dp.message(Command("buy"))
 	async def buy(message: Message):
