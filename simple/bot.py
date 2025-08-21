@@ -103,10 +103,10 @@ def rsi(values: List[float], period: int = 14) -> List[float]:
 	return rsivals
 
 
-def atr(klines: List[Dict[str, Any]], period: int = 14) -> float:
+def atr_series(klines: List[Dict[str, Any]], period: int = 14) -> List[float]:
 	if len(klines) < 2:
-		return 0.0
-	trs: List[float] = []
+		return [0.0] * len(klines)
+	trs: List[float] = [0.0]
 	prev_close = float(klines[0].get("close") or 0.0)
 	for i in range(1, len(klines)):
 		h = float(klines[i].get("high") or 0.0)
@@ -114,10 +114,11 @@ def atr(klines: List[Dict[str, Any]], period: int = 14) -> float:
 		tr = max(h - l, abs(h - prev_close), abs(l - prev_close))
 		trs.append(tr)
 		prev_close = float(klines[i].get("close") or prev_close)
-	if not trs:
-		return 0.0
-	atr_series = ema(trs, period)
-	return atr_series[-1] if atr_series else 0.0
+	# EMA of TRs
+	atr_vals = ema(trs, period)
+	if not atr_vals:
+		atr_vals = [0.0] * len(trs)
+	return atr_vals
 
 
 class Paper:
@@ -179,7 +180,7 @@ async def main() -> None:
 
 	@dp.message(Command("start"))
 	async def start(message: Message):
-		await message.answer("Simple CoinEx Paper Bot online. /status /buy /sell /grid_on /grid_off /price /grid_levels")
+		await message.answer("Simple CoinEx Paper Bot online. /status /buy /sell /grid_on /grid_off /price /grid_levels /backtest")
 
 	@dp.message(Command("status"))
 	async def status(message: Message):
@@ -209,11 +210,11 @@ async def main() -> None:
 					fast = ema(closes, 12)
 					slow = ema(closes, 26)
 					r = rsi(closes, 14)
-					a = atr(kl, 14)
+					a_series = atr_series(kl, 14)
 					ind["ema_fast"] = fast[-1] if fast else 0.0
 					ind["ema_slow"] = slow[-1] if slow else 0.0
 					ind["rsi"] = r[-1] if r else 50.0
-					ind["atr"] = a
+					ind["atr"] = a_series[-1] if a_series else 0.0
 				center = p if dynamic_center and p > 0 else anchor_px
 				if center > 0:
 					for i in range(grid_per_side):
@@ -261,14 +262,93 @@ async def main() -> None:
 	async def grid_levels(message: Message):
 		center = await cx.price(market)
 		kl = await cx.klines(market, k_period, 120)
-		a = atr(kl, 14)
-		step = max(min(a if a > 0 else center * step_pct, center * 0.01), center * 0.002)
+		a = atr_series(kl, 14)
+		step_val = a[-1] if a else 0.0
+		step = max(min(step_val if step_val > 0 else center * step_pct, center * 0.01), center * 0.002)
 		levels_down = [center - step * (i + 1) for i in range(grid_per_side)]
 		levels_up = [center + step * (i + 1) for i in range(grid_per_side)]
 		text = f"Center: {center:.8f} | step≈{step:.8f}\n"
 		text += "Buy levels:\n" + "\n".join(f"{lv:.8f}" for lv in levels_down)
 		text += "\nSell levels:\n" + "\n".join(f"{lv:.8f}" for lv in levels_up)
 		await message.answer(text)
+
+	@dp.message(Command("backtest"))
+	async def backtest(message: Message):
+		parts = message.text.split()
+		scope = parts[1].lower() if len(parts) > 1 else "day"
+		if scope not in ("hour", "day", "month"):
+			scope = "day"
+		period_map = {"hour": ("1min", 60), "day": ("5min", 288), "month": ("1hour", 720)}
+		period, limit = period_map[scope]
+		try:
+			kl = await cx.klines(market, period, limit)
+			closes = [float(k.get("close") or 0.0) for k in kl]
+			fast = ema(closes, 12)
+			slow = ema(closes, 26)
+			r = rsi(closes, 14)
+			a = atr_series(kl, 14)
+			start = max(30, 1)
+			usdt = 10000.0
+			qty = 0.0
+			fee_bps = 10.0
+			cost_basis = 0.0
+			wins = 0
+			closed = 0
+			trades = 0
+			last_idx = -9999
+			cooldown_bars = 3
+			base_usdt = 50.0
+			for i in range(start, len(closes)):
+				px = closes[i]
+				center_bt = slow[i] if slow else px
+				atr_i = a[i] if i < len(a) else 0.0
+				stepv = max(min(atr_i if atr_i > 0 else center_bt * step_pct, center_bt * 0.01), center_bt * 0.002)
+				if i - last_idx < cooldown_bars:
+					continue
+				# Generate one signal per bar at most
+				for j in range(grid_per_side):
+					buy_lv = center_bt - stepv * (j + 1)
+					sell_lv = center_bt + stepv * (j + 1)
+					if px <= buy_lv and r[i] <= 65 and fast[i] >= slow[i]:
+						# BUY
+						amount = min(base_usdt, usdt)
+						if amount > 0:
+							q = amount / max(px, 1e-9)
+							fee = amount * (fee_bps / 10000.0)
+							usdt -= (amount + fee)
+							qty += q
+							cost_basis += (amount + fee)
+							trades += 1
+							last_idx = i
+						break
+					if px >= sell_lv and r[i] >= 35 and fast[i] <= slow[i] and qty > 0:
+						# SELL
+						q = min(qty, base_usdt / max(px, 1e-9))
+						notional = q * px
+						fee = notional * (fee_bps / 10000.0)
+						proceeds = notional - fee
+						avg_cost = (cost_basis / qty) if qty > 0 else 0.0
+						cost_sold = avg_cost * q
+						realized = proceeds - cost_sold
+						usdt += proceeds
+						qty -= q
+						cost_basis -= cost_sold
+						closed += 1
+						if realized > 0:
+							wins += 1
+						trades += 1
+						last_idx = i
+						break
+			final_px = closes[-1]
+			equity = usdt + qty * final_px
+			win_rate = (wins / closed * 100.0) if closed else 0.0
+			await message.answer(
+				f"Backtest ({scope})\n"
+				f"Trades={trades} | Closed={closed} | Wins={wins} | WinRate={win_rate:.2f}%\n"
+				f"Final Equity={equity:.2f} | USDT={usdt:.2f} | QTY={qty:.8f}"
+			)
+		except Exception as e:
+			await message.answer(f"ERR backtest: {e}")
 
 	@dp.message(Command("buy"))
 	async def buy(message: Message):
