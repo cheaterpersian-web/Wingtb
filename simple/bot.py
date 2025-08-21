@@ -177,7 +177,7 @@ async def main() -> None:
 
 	@dp.message(Command("start"))
 	async def start(message: Message):
-		await message.answer("Simple CoinEx Paper Bot online. /status /buy /sell /grid_on /grid_off /price /grid_levels /backtest")
+		await message.answer("Simple CoinEx Paper Bot online. /status /buy /sell /grid_on /grid_off /price /grid_levels /backtest /optimize")
 
 	@dp.message(Command("status"))
 	async def status(message: Message):
@@ -219,7 +219,6 @@ async def main() -> None:
 						buy_lv = center - step * (i + 1)
 						sell_lv = center + step * (i + 1)
 						if p <= buy_lv:
-							# Mean-reversion BUY: oversold and below slow EMA
 							if ind["rsi"] <= 35 and ind["ema_fast"] < ind["ema_slow"]:
 								if (time.time() - last_signal_ts) > min_cooldown or last_signal_side != "BUY":
 									await bot.send_message(chat_id, f"✅ BUY {market} @ {p:.8f} | lvl={buy_lv:.8f} | RSI={ind['rsi']:.1f}")
@@ -227,7 +226,6 @@ async def main() -> None:
 									last_signal_side = "BUY"
 							break
 						if p >= sell_lv:
-							# Mean-reversion SELL: overbought and above slow EMA
 							if ind["rsi"] >= 65 and ind["ema_fast"] > ind["ema_slow"]:
 								if (time.time() - last_signal_ts) > min_cooldown or last_signal_side != "SELL":
 									await bot.send_message(chat_id, f"✅ SELL {market} @ {p:.8f} | lvl={sell_lv:.8f} | RSI={ind['rsi']:.1f}")
@@ -300,7 +298,7 @@ async def main() -> None:
 				center_bt = slow[i] if slow else px
 				atr_i = a_list[i] if i < len(a_list) else 0.0
 				stepv = max(min(atr_i if atr_i > 0 else center_bt * step_pct, center_bt * 0.006), center_bt * 0.001)
-				# exits with TP/SL/Trailing
+				# exits
 				new_open: List[Dict[str, float]] = []
 				for lot in open_lots:
 					trail = lot.get("trail", 0.0)
@@ -323,7 +321,7 @@ async def main() -> None:
 					else:
 						new_open.append(lot)
 				open_lots = new_open
-				# entries (mean-reversion BUY only)
+				# entries
 				if i - last_idx >= cooldown_bars and r[i] <= 35 and fast[i] < slow[i]:
 					for j in range(grid_per_side):
 						buy_lv = center_bt - stepv * (j + 1)
@@ -333,7 +331,7 @@ async def main() -> None:
 							fee_in = amount * (fee_bps / 10000.0)
 							cost = amount + fee_in
 							usdt -= cost
-							# per lot TP/SL (tighter TP, wider SL)
+							# per lot TP/SL
 							tp = px + atr_i * 0.6
 							sl = px - atr_i * 1.0
 							open_lots.append({"qty": q, "entry": px, "cost": cost, "tp": tp, "sl": sl, "trail": 0.0})
@@ -359,6 +357,116 @@ async def main() -> None:
 			)
 		except Exception as e:
 			await message.answer(f"ERR backtest: {e}")
+
+	@dp.message(Command("optimize"))
+	async def optimize(message: Message):
+		parts = message.text.split()
+		scope = parts[1].lower() if len(parts) > 1 else "day"
+		period_map = {"hour": ("1min", 120), "day": ("5min", 576), "month": ("5min", 2000)}
+		period, limit = period_map.get(scope, ("5min", 576))
+		kl = await cx.klines(market, period, limit)
+		closes = [float(k.get("close") or 0.0) for k in kl]
+		fast_all = ema(closes, 12)
+		slow_all = ema(closes, 26)
+		rsi_all = rsi(closes, 14)
+		atr_all = atr_series(kl, 14)
+		start = max(30, 1)
+		candidates = []
+		buy_rsi_list = [30, 35, 40]
+		sell_rsi_list = [60, 65, 70]
+		tp_mult_list = [0.4, 0.6, 0.8]
+		sl_mult_list = [0.8, 1.0, 1.2]
+		grids_list = [8, 10, 12]
+		for buy_rsi_thr in buy_rsi_list:
+			for sell_rsi_thr in sell_rsi_list:
+				for tp_mult in tp_mult_list:
+					for sl_mult in sl_mult_list:
+						for grids in grids_list:
+							usdt = 10000.0
+							fee_bps = 10.0
+							open_lots: List[Dict[str, float]] = []
+							wins = closed = trades = 0
+							last_idx = -9999
+							cooldown_bars = 2
+							for i in range(start, len(closes)):
+								px = closes[i]
+								center_bt = slow_all[i] if slow_all else px
+								atr_i = atr_all[i] if i < len(atr_all) else 0.0
+								stepv = max(min(atr_i if atr_i > 0 else center_bt * step_pct, center_bt * 0.006), center_bt * 0.001)
+								# exits
+								new_open: List[Dict[str, float]] = []
+								for lot in open_lots:
+									trail = lot.get("trail", 0.0)
+									if px > lot["entry"] + atr_i * 0.5:
+										trail = max(trail, px - atr_i * 0.5)
+										lot["trail"] = trail
+									hit_tp = px >= lot["tp"]
+									hit_sl = px <= lot["sl"]
+									hit_tr = trail > 0 and px <= trail
+									if hit_tp or hit_sl or hit_tr:
+										notional = lot["qty"] * px
+										fee = notional * (fee_bps / 10000.0)
+										proceeds = notional - fee
+										realized = proceeds - lot["cost"]
+										usdt += proceeds
+										closed += 1
+										trades += 1
+										if realized > 0:
+											wins += 1
+									else:
+										new_open.append(lot)
+								open_lots = new_open
+								# entries
+								if i - last_idx >= cooldown_bars and rsi_all[i] <= buy_rsi_thr and fast_all[i] < slow_all[i]:
+									for j in range(grids):
+										buy_lv = center_bt - stepv * (j + 1)
+										if px <= buy_lv and usdt > 50.0:
+											amount = 50.0
+											q = amount / max(px, 1e-9)
+											fee_in = amount * (fee_bps / 10000.0)
+											cost = amount + fee_in
+											usdt -= cost
+											open_lots.append({
+												"qty": q,
+												"entry": px,
+												"cost": cost,
+												"tp": px + atr_i * tp_mult,
+												"sl": px - atr_i * sl_mult,
+												"trail": 0.0,
+											})
+											trades += 1
+											last_idx = i
+											break
+							# finalize
+							final_px = closes[-1]
+							for lot in open_lots:
+								notional = lot["qty"] * final_px
+								fee = notional * (fee_bps / 10000.0)
+								proceeds = notional - fee
+								realized = proceeds - lot["cost"]
+								usdt += proceeds
+								closed += 1
+								if realized > 0:
+									wins += 1
+							win_rate = (wins / closed * 100.0) if closed else 0.0
+							candidates.append({
+								"buy_rsi": buy_rsi_thr,
+								"sell_rsi": sell_rsi_thr,
+								"tp": tp_mult,
+								"sl": sl_mult,
+								"grids": grids,
+								"win_rate": win_rate,
+								"equity": usdt,
+								"trades": trades,
+							})
+		# sort by equity then win_rate
+		candidates.sort(key=lambda x: (x["equity"], x["win_rate"]), reverse=True)
+		top = candidates[:5]
+		lines = [
+			f"#{i+1} eq={c['equity']:.2f} wr={c['win_rate']:.1f}% tr={c['trades']} tp={c['tp']} sl={c['sl']} grids={c['grids']} rsiB={c['buy_rsi']} rsiS={c['sell_rsi']}"
+			for i, c in enumerate(top)
+		]
+		await message.answer("Top configs (" + scope + ")\n" + "\n".join(lines))
 
 	@dp.message(Command("buy"))
 	async def buy(message: Message):
