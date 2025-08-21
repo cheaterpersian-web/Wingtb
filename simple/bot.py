@@ -83,68 +83,66 @@ def atr_series(klines: List[Dict[str, Any]], period: int = 14) -> List[float]:
 
 
 def normalize_klines(raw: Any) -> List[Dict[str, float]]:
-	data = raw
+	payload = raw
 	if isinstance(raw, dict):
-		data = raw.get("data", raw)
+		payload = raw.get("data", raw)
+	rows = None
+	if isinstance(payload, dict):
+		for key in ("list", "klines", "candles"):
+			v = payload.get(key)
+			if isinstance(v, list):
+				rows = v
+				break
+		if rows is None:
+			rows = [payload]
+	else:
+		rows = payload if isinstance(payload, list) else [payload]
 	out: List[Dict[str, float]] = []
-	if not isinstance(data, list):
-		data = [data]
-	for c in data:
+	for row in rows:
 		close_v = None
 		high_v = None
 		low_v = None
-		if isinstance(c, dict):
-			for k in ("close", "c", "last", "price"):
-				v = c.get(k)
-				if v is not None:
-					try:
-						close_v = float(v)
-					except Exception:
-						pass
-					break
-			for k in ("high", "h", "max"):
-				v = c.get(k)
-				if v is not None:
-					try:
-						high_v = float(v)
-					except Exception:
-						pass
-					break
-			for k in ("low", "l", "min"):
-				v = c.get(k)
-				if v is not None:
-					try:
-						low_v = float(v)
-					except Exception:
-						pass
-					break
-			if close_v is None:
-				for key in ("values", "kline", "list"):
-					vals = c.get(key)
-					if isinstance(vals, (list, tuple)) and len(vals) >= 4:
+		if isinstance(row, dict):
+			def _getf(d: Dict[str, Any], keys: List[str]) -> float | None:
+				for k in keys:
+					v = d.get(k)
+					if v is not None:
 						try:
-							ns = [float(x) for x in vals]
-							close_v = ns[-2] if len(ns) >= 5 else ns[-1]
-							window = ns[1:5] if len(ns) >= 5 else ns
-							high_v = max(window) if high_v is None else high_v
-							low_v = min(window) if low_v is None else low_v
+							return float(v)
 						except Exception:
 							pass
-		elif isinstance(c, (list, tuple)):
+				return None
+			close_v = _getf(row, ["close", "c", "last", "price"])
+			high_v = _getf(row, ["high", "h", "max"])
+			low_v = _getf(row, ["low", "l", "min"])
+			if close_v is None:
+				for key in ("values", "kline"):
+					vals = row.get(key)
+					if isinstance(vals, (list, tuple)) and len(vals) >= 5:
+						try:
+							ns = [float(x) for x in vals]
+							close_v = ns[2]
+							high_v = ns[3]
+							low_v = ns[4]
+						except Exception:
+							pass
+		elif isinstance(row, (list, tuple)):
 			try:
-				ns = [float(x) for x in c]
-				if len(ns) >= 4:
-					close_v = ns[-2] if len(ns) >= 5 else ns[-1]
-					window = ns[1:5] if len(ns) >= 5 else ns
-					high_v = max(window)
-					low_v = min(window)
+				ns = [float(x) for x in row]
+				if len(ns) >= 5:
+					close_v = ns[2]
+					high_v = ns[3]
+					low_v = ns[4]
+				elif len(ns) >= 3:
+					close_v = ns[2]
+					high_v = max(ns[1:3])
+					low_v = min(ns[1:3])
 			except Exception:
 				pass
-		elif isinstance(c, str):
+		elif isinstance(row, str):
 			try:
-				obj = json.loads(c)
-				for d in normalize_klines(obj):
-					out.append(d)
+				obj = json.loads(row)
+				out.extend(normalize_klines(obj))
 				continue
 			except Exception:
 				pass
@@ -353,12 +351,18 @@ async def main() -> None:
 		period, limit = period_map[scope]
 		try:
 			kl = await cx.klines(market, period, limit)
+			if not kl or len(kl) < 50:
+				await message.answer("ERR backtest: insufficient data; try /backtest day")
+				return
 			closes = [float(k.get("close") or 0.0) for k in kl]
+			if not closes:
+				await message.answer("ERR backtest: no closes extracted")
+				return
 			fast = ema(closes, 12)
 			slow = ema(closes, 26)
 			r = rsi(closes, 14)
 			a_list = atr_series(kl, 14)
-			start = max(30, 1)
+			start = 30 if len(closes) > 30 else 1
 			usdt = 10000.0
 			fee_bps = 10.0
 			base_usdt = 50.0
@@ -440,12 +444,18 @@ async def main() -> None:
 		period_map = {"hour": ("1min", 120), "day": ("5min", 576), "month": ("5min", 2000)}
 		period, limit = period_map.get(scope, ("5min", 576))
 		kl = await cx.klines(market, period, limit)
+		if not kl or len(kl) < 50:
+			await message.answer("ERR optimize: insufficient data; try day scope")
+			return
 		closes = [float(k.get("close") or 0.0) for k in kl]
+		if not closes:
+			await message.answer("ERR optimize: no closes extracted")
+			return
 		fast_all = ema(closes, 12)
 		slow_all = ema(closes, 26)
 		rsi_all = rsi(closes, 14)
 		atr_all = atr_series(kl, 14)
-		start = max(30, 1)
+		start = 30 if len(closes) > 30 else 1
 		candidates = []
 		buy_rsi_list = [30, 35, 40]
 		sell_rsi_list = [60, 65, 70]
