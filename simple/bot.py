@@ -165,7 +165,7 @@ async def main() -> None:
 	dp = Dispatcher()
 	cx = CoinExClient()
 	paper = Paper(usdt=10000)
-	grid_per_side = 10
+	grid_per_side = 12
 	step_pct = 0.005
 	anchor_px: float = 0.0
 	dynamic_center = True
@@ -219,14 +219,16 @@ async def main() -> None:
 						buy_lv = center - step * (i + 1)
 						sell_lv = center + step * (i + 1)
 						if p <= buy_lv:
-							if ind["rsi"] <= 70 and ind["ema_fast"] >= ind["ema_slow"]:
+							# Mean-reversion BUY: oversold and below slow EMA
+							if ind["rsi"] <= 35 and ind["ema_fast"] < ind["ema_slow"]:
 								if (time.time() - last_signal_ts) > min_cooldown or last_signal_side != "BUY":
 									await bot.send_message(chat_id, f"✅ BUY {market} @ {p:.8f} | lvl={buy_lv:.8f} | RSI={ind['rsi']:.1f}")
 									last_signal_ts = time.time()
 									last_signal_side = "BUY"
 							break
 						if p >= sell_lv:
-							if ind["rsi"] >= 30 and ind["ema_fast"] <= ind["ema_slow"]:
+							# Mean-reversion SELL: overbought and above slow EMA
+							if ind["rsi"] >= 65 and ind["ema_fast"] > ind["ema_slow"]:
 								if (time.time() - last_signal_ts) > min_cooldown or last_signal_side != "SELL":
 									await bot.send_message(chat_id, f"✅ SELL {market} @ {p:.8f} | lvl={sell_lv:.8f} | RSI={ind['rsi']:.1f}")
 									last_signal_ts = time.time()
@@ -298,7 +300,7 @@ async def main() -> None:
 				center_bt = slow[i] if slow else px
 				atr_i = a_list[i] if i < len(a_list) else 0.0
 				stepv = max(min(atr_i if atr_i > 0 else center_bt * step_pct, center_bt * 0.006), center_bt * 0.001)
-				# exits
+				# exits with TP/SL/Trailing
 				new_open: List[Dict[str, float]] = []
 				for lot in open_lots:
 					trail = lot.get("trail", 0.0)
@@ -321,8 +323,8 @@ async def main() -> None:
 					else:
 						new_open.append(lot)
 				open_lots = new_open
-				# entries
-				if i - last_idx >= cooldown_bars and r[i] <= 70 and fast[i] >= slow[i]:
+				# entries (mean-reversion BUY only)
+				if i - last_idx >= cooldown_bars and r[i] <= 35 and fast[i] < slow[i]:
 					for j in range(grid_per_side):
 						buy_lv = center_bt - stepv * (j + 1)
 						if px <= buy_lv and usdt > base_usdt:
@@ -331,9 +333,9 @@ async def main() -> None:
 							fee_in = amount * (fee_bps / 10000.0)
 							cost = amount + fee_in
 							usdt -= cost
-							# per lot TP/SL
-							tp = px + atr_i * 1.0
-							sl = px - atr_i * 0.8
+							# per lot TP/SL (tighter TP, wider SL)
+							tp = px + atr_i * 0.6
+							sl = px - atr_i * 1.0
 							open_lots.append({"qty": q, "entry": px, "cost": cost, "tp": tp, "sl": sl, "trail": 0.0})
 							trades += 1
 							last_idx = i
