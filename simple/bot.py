@@ -79,7 +79,6 @@ def rsi(values: List[float], period: int = 14) -> List[float]:
 		delta = values[i] - values[i - 1]
 		gains.append(max(delta, 0.0))
 		losses.append(max(-delta, 0.0))
-	# Wilder's RMA
 	def rma(arr: List[float], n: int) -> List[float]:
 		if len(arr) < n + 1:
 			return [0.0] * len(arr)
@@ -114,7 +113,6 @@ def atr_series(klines: List[Dict[str, Any]], period: int = 14) -> List[float]:
 		tr = max(h - l, abs(h - prev_close), abs(l - prev_close))
 		trs.append(tr)
 		prev_close = float(klines[i].get("close") or prev_close)
-	# EMA of TRs
 	atr_vals = ema(trs, period)
 	if not atr_vals:
 		atr_vals = [0.0] * len(trs)
@@ -157,7 +155,6 @@ class Paper:
 
 
 async def main() -> None:
-	# Load .env so BOT_TOKEN, DEFAULT_PAIR are available without exporting each run
 	load_dotenv()
 	token = os.getenv("BOT_TOKEN")
 	if not token:
@@ -168,13 +165,13 @@ async def main() -> None:
 	dp = Dispatcher()
 	cx = CoinExClient()
 	paper = Paper(usdt=10000)
-	grid_per_side = 6
+	grid_per_side = 10
 	step_pct = 0.005
 	anchor_px: float = 0.0
 	dynamic_center = True
 	last_signal_ts: float = 0.0
 	last_signal_side: str = ""
-	min_cooldown = 8.0
+	min_cooldown = 3.0
 	k_period = "5min"
 	ind = {"ema_fast": 0.0, "ema_slow": 0.0, "rsi": 50.0, "atr": 0.0}
 
@@ -203,34 +200,33 @@ async def main() -> None:
 				p = await cx.price(market)
 				await paper.on_price(p)
 				logger.info("price updated: %.8f", p)
-				# refresh indicators every ~10s
 				if int(time.time()) % 10 == 0:
 					kl = await cx.klines(market, k_period, 120)
 					closes = [float(k.get("close") or 0.0) for k in kl]
 					fast = ema(closes, 12)
 					slow = ema(closes, 26)
 					r = rsi(closes, 14)
-					a_series = atr_series(kl, 14)
+					a_list = atr_series(kl, 14)
 					ind["ema_fast"] = fast[-1] if fast else 0.0
 					ind["ema_slow"] = slow[-1] if slow else 0.0
 					ind["rsi"] = r[-1] if r else 50.0
-					ind["atr"] = a_series[-1] if a_series else 0.0
+					ind["atr"] = a_list[-1] if a_list else 0.0
 				center = p if dynamic_center and p > 0 else anchor_px
 				if center > 0:
 					for i in range(grid_per_side):
 						step = ind["atr"] if ind["atr"] > 0 else (center * step_pct)
-						step = max(min(step, center * 0.01), center * 0.002)
+						step = max(min(step, center * 0.006), center * 0.001)
 						buy_lv = center - step * (i + 1)
 						sell_lv = center + step * (i + 1)
 						if p <= buy_lv:
-							if ind["rsi"] <= 65 and ind["ema_fast"] >= ind["ema_slow"]:
+							if ind["rsi"] <= 70 and ind["ema_fast"] >= ind["ema_slow"]:
 								if (time.time() - last_signal_ts) > min_cooldown or last_signal_side != "BUY":
 									await bot.send_message(chat_id, f"✅ BUY {market} @ {p:.8f} | lvl={buy_lv:.8f} | RSI={ind['rsi']:.1f}")
 									last_signal_ts = time.time()
 									last_signal_side = "BUY"
 							break
 						if p >= sell_lv:
-							if ind["rsi"] >= 35 and ind["ema_fast"] <= ind["ema_slow"]:
+							if ind["rsi"] >= 30 and ind["ema_fast"] <= ind["ema_slow"]:
 								if (time.time() - last_signal_ts) > min_cooldown or last_signal_side != "SELL":
 									await bot.send_message(chat_id, f"✅ SELL {market} @ {p:.8f} | lvl={sell_lv:.8f} | RSI={ind['rsi']:.1f}")
 									last_signal_ts = time.time()
@@ -262,9 +258,9 @@ async def main() -> None:
 	async def grid_levels(message: Message):
 		center = await cx.price(market)
 		kl = await cx.klines(market, k_period, 120)
-		a = atr_series(kl, 14)
-		step_val = a[-1] if a else 0.0
-		step = max(min(step_val if step_val > 0 else center * step_pct, center * 0.01), center * 0.002)
+		a_list = atr_series(kl, 14)
+		step_val = a_list[-1] if a_list else 0.0
+		step = max(min(step_val if step_val > 0 else center * step_pct, center * 0.006), center * 0.001)
 		levels_down = [center - step * (i + 1) for i in range(grid_per_side)]
 		levels_up = [center + step * (i + 1) for i in range(grid_per_side)]
 		text = f"Center: {center:.8f} | step≈{step:.8f}\n"
@@ -278,7 +274,7 @@ async def main() -> None:
 		scope = parts[1].lower() if len(parts) > 1 else "day"
 		if scope not in ("hour", "day", "month"):
 			scope = "day"
-		period_map = {"hour": ("1min", 60), "day": ("5min", 288), "month": ("1hour", 720)}
+		period_map = {"hour": ("1min", 60), "day": ("5min", 288), "month": ("5min", 1000)}
 		period, limit = period_map[scope]
 		try:
 			kl = await cx.klines(market, period, limit)
@@ -286,7 +282,7 @@ async def main() -> None:
 			fast = ema(closes, 12)
 			slow = ema(closes, 26)
 			r = rsi(closes, 14)
-			a = atr_series(kl, 14)
+			a_list = atr_series(kl, 14)
 			start = max(30, 1)
 			usdt = 10000.0
 			qty = 0.0
@@ -296,21 +292,19 @@ async def main() -> None:
 			closed = 0
 			trades = 0
 			last_idx = -9999
-			cooldown_bars = 3
+			cooldown_bars = 2
 			base_usdt = 50.0
 			for i in range(start, len(closes)):
 				px = closes[i]
 				center_bt = slow[i] if slow else px
-				atr_i = a[i] if i < len(a) else 0.0
-				stepv = max(min(atr_i if atr_i > 0 else center_bt * step_pct, center_bt * 0.01), center_bt * 0.002)
+				atr_i = a_list[i] if i < len(a_list) else 0.0
+				stepv = max(min(atr_i if atr_i > 0 else center_bt * step_pct, center_bt * 0.006), center_bt * 0.001)
 				if i - last_idx < cooldown_bars:
 					continue
-				# Generate one signal per bar at most
 				for j in range(grid_per_side):
 					buy_lv = center_bt - stepv * (j + 1)
 					sell_lv = center_bt + stepv * (j + 1)
-					if px <= buy_lv and r[i] <= 65 and fast[i] >= slow[i]:
-						# BUY
+					if px <= buy_lv and r[i] <= 70 and fast[i] >= slow[i]:
 						amount = min(base_usdt, usdt)
 						if amount > 0:
 							q = amount / max(px, 1e-9)
@@ -321,8 +315,7 @@ async def main() -> None:
 							trades += 1
 							last_idx = i
 						break
-					if px >= sell_lv and r[i] >= 35 and fast[i] <= slow[i] and qty > 0:
-						# SELL
+					if px >= sell_lv and r[i] >= 30 and fast[i] <= slow[i] and qty > 0:
 						q = min(qty, base_usdt / max(px, 1e-9))
 						notional = q * px
 						fee = notional * (fee_bps / 10000.0)
