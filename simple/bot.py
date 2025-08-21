@@ -11,6 +11,7 @@ import httpx
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import Message
+from dotenv import load_dotenv
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -158,6 +159,8 @@ class Paper:
 
 
 async def main() -> None:
+    # Load .env so BOT_TOKEN, DEFAULT_PAIR are available without exporting each run
+    load_dotenv()
 	token = os.getenv("BOT_TOKEN")
 	if not token:
 		raise RuntimeError("BOT_TOKEN missing")
