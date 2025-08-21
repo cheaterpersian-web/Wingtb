@@ -55,7 +55,6 @@ class CoinExClient:
 		r = await self.client.get(f"{COINEX_V2}/spot/kline", params={"market": market, "period": period, "limit": limit})
 		r.raise_for_status()
 		data = r.json().get("data", [])
-		# expect list of dicts with open/high/low/close
 		return data
 
 
@@ -105,7 +104,6 @@ def rsi(values: List[float], period: int = 14) -> List[float]:
 
 
 def atr(klines: List[Dict[str, Any]], period: int = 14) -> float:
-	# Expect items with high/low/close
 	if len(klines) < 2:
 		return 0.0
 	trs: List[float] = []
@@ -118,7 +116,6 @@ def atr(klines: List[Dict[str, Any]], period: int = 14) -> float:
 		prev_close = float(klines[i].get("close") or prev_close)
 	if not trs:
 		return 0.0
-	# Smooth with EMA
 	atr_series = ema(trs, period)
 	return atr_series[-1] if atr_series else 0.0
 
@@ -159,8 +156,8 @@ class Paper:
 
 
 async def main() -> None:
-    # Load .env so BOT_TOKEN, DEFAULT_PAIR are available without exporting each run
-    load_dotenv()
+	# Load .env so BOT_TOKEN, DEFAULT_PAIR are available without exporting each run
+	load_dotenv()
 	token = os.getenv("BOT_TOKEN")
 	if not token:
 		raise RuntimeError("BOT_TOKEN missing")
@@ -176,7 +173,7 @@ async def main() -> None:
 	dynamic_center = True
 	last_signal_ts: float = 0.0
 	last_signal_side: str = ""
-	min_cooldown = 8.0  # seconds between signals
+	min_cooldown = 8.0
 	k_period = "5min"
 	ind = {"ema_fast": 0.0, "ema_slow": 0.0, "rsi": 50.0, "atr": 0.0}
 
@@ -220,13 +217,11 @@ async def main() -> None:
 				center = p if dynamic_center and p > 0 else anchor_px
 				if center > 0:
 					for i in range(grid_per_side):
-						# ATR-informed step (clamped)
 						step = ind["atr"] if ind["atr"] > 0 else (center * step_pct)
 						step = max(min(step, center * 0.01), center * 0.002)
 						buy_lv = center - step * (i + 1)
 						sell_lv = center + step * (i + 1)
 						if p <= buy_lv:
-							# Filters: RSI low or uptrend
 							if ind["rsi"] <= 65 and ind["ema_fast"] >= ind["ema_slow"]:
 								if (time.time() - last_signal_ts) > min_cooldown or last_signal_side != "BUY":
 									await bot.send_message(chat_id, f"✅ BUY {market} @ {p:.8f} | lvl={buy_lv:.8f} | RSI={ind['rsi']:.1f}")
@@ -234,7 +229,6 @@ async def main() -> None:
 									last_signal_side = "BUY"
 							break
 						if p >= sell_lv:
-							# Filters: RSI high or downtrend
 							if ind["rsi"] >= 35 and ind["ema_fast"] <= ind["ema_slow"]:
 								if (time.time() - last_signal_ts) > min_cooldown or last_signal_side != "SELL":
 									await bot.send_message(chat_id, f"✅ SELL {market} @ {p:.8f} | lvl={sell_lv:.8f} | RSI={ind['rsi']:.1f}")
@@ -266,7 +260,6 @@ async def main() -> None:
 	@dp.message(Command("grid_levels"))
 	async def grid_levels(message: Message):
 		center = await cx.price(market)
-		# refresh ATR to show real step
 		kl = await cx.klines(market, k_period, 120)
 		a = atr(kl, 14)
 		step = max(min(a if a > 0 else center * step_pct, center * 0.01), center * 0.002)
