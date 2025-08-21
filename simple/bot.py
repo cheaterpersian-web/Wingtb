@@ -234,7 +234,7 @@ async def main() -> None:
 	token = os.getenv("BOT_TOKEN")
 	if not token:
 		raise RuntimeError("BOT_TOKEN missing")
-	market = os.getenv("DEFAULT_PAIR", "BTCUSDT")
+	market = os.getenv("DEFAULT_PAIR", "TRXUSDT")
 
 	bot = Bot(token)
 	dp = Dispatcher()
