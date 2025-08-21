@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from typing import Awaitable, Callable
 
 import httpx
@@ -103,6 +104,7 @@ async def main() -> None:
 	grid_per_side = 6
 	step_pct = 0.005
 	anchor_px: float = 0.0
+	dynamic_center = True
 
 	@dp.message(Command("start"))
 	async def start(message: Message):
@@ -129,11 +131,11 @@ async def main() -> None:
 				p = await cx.price(market)
 				await paper.on_price(p)
 				logger.info("price updated: %.8f", p)
-				# grid signal
-				if anchor_px > 0:
+				center = p if dynamic_center and p > 0 else anchor_px
+				if center > 0:
 					for i in range(grid_per_side):
-						buy_lv = anchor_px * (1.0 - step_pct * (i + 1))
-						sell_lv = anchor_px * (1.0 + step_pct * (i + 1))
+						buy_lv = center * (1.0 - step_pct * (i + 1))
+						sell_lv = center * (1.0 + step_pct * (i + 1))
 						if p <= buy_lv:
 							await bot.send_message(chat_id, f"✅ BUY signal {market} @ {p:.8f} (lvl={buy_lv:.8f})")
 							break
@@ -164,11 +166,12 @@ async def main() -> None:
 
 	@dp.message(Command("grid_levels"))
 	async def grid_levels(message: Message):
-		if anchor_px <= 0:
+		center = await cx.price(market) if dynamic_center else anchor_px
+		if center <= 0:
 			await message.answer("Grid not started. /grid_on")
 			return
-		levels_down = [anchor_px * (1.0 - step_pct * (i + 1)) for i in range(grid_per_side)]
-		levels_up = [anchor_px * (1.0 + step_pct * (i + 1)) for i in range(grid_per_side)]
+		levels_down = [center * (1.0 - step_pct * (i + 1)) for i in range(grid_per_side)]
+		levels_up = [center * (1.0 + step_pct * (i + 1)) for i in range(grid_per_side)]
 		text = "Buy levels:\n" + "\n".join(f"{lv:.8f}" for lv in levels_down) + "\nSell levels:\n" + "\n".join(f"{lv:.8f}" for lv in levels_up)
 		await message.answer(text)
 
