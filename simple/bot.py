@@ -355,7 +355,7 @@ async def main() -> None:
 	async def backtest(message: Message):
 		parts = message.text.split()
 		scope = parts[1].lower() if len(parts) > 1 else "day"
-		period_map = {"hour": ("1min", 120), "day": ("5min", 576), "15d": ("15min", 1440), "month": ("5min", 2000)}
+		period_map = {"hour": ("1min", 120), "day": ("5min", 288), "15d": ("30min", 720), "month": ("1hour", 720)}
 		if scope not in period_map:
 			scope = "day"
 		period, limit = period_map[scope]
@@ -460,7 +460,7 @@ async def main() -> None:
 	async def optimize(message: Message):
 		parts = message.text.split()
 		scope = parts[1].lower() if len(parts) > 1 else "day"
-		period_map = {"hour": ("1min", 120), "day": ("5min", 576), "15d": ("15min", 1440), "month": ("5min", 2000)}
+		period_map = {"hour": ("1min", 120), "day": ("5min", 288), "15d": ("30min", 720), "month": ("1hour", 720)}
 		period, limit = period_map.get(scope, ("5min", 576))
 		kl = await cx.klines(market, period, limit)
 		if not kl and scope == "month":
