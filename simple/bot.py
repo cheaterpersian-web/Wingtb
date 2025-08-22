@@ -12,6 +12,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
 from aiogram.types import Message
 from dotenv import load_dotenv
+from app.datafeed.coinex_rest import CoinExREST
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -159,6 +160,7 @@ def normalize_klines(raw: Any) -> List[Dict[str, float]]:
 class CoinExClient:
 	def __init__(self) -> None:
 		self.client = httpx.AsyncClient(timeout=12)
+		self.rest = CoinExREST()
 
 	async def price(self, market: str) -> float:
 		r = await self.client.get(f"{COINEX_V2}/spot/ticker", params={"market": market})
@@ -187,9 +189,17 @@ class CoinExClient:
 		return float(last)
 
 	async def klines(self, market: str, period: str = "5min", limit: int = 100) -> List[Dict[str, float]]:
-		r = await self.client.get(f"{COINEX_V2}/spot/kline", params={"market": market, "period": period, "limit": limit})
-		r.raise_for_status()
-		return normalize_klines(r.json())
+		try:
+			rows = await self.rest.get_klines(market, period, limit)
+			if not rows and period == "5min" and limit >= 2000:
+				# auto-downgrade month -> 15d if API returns empty
+				rows = await self.rest.get_klines(market, "15min", 1440)
+			return normalize_klines({"data": rows})
+		except Exception:
+			# final fallback to direct v2
+			r = await self.client.get(f"{COINEX_V2}/spot/kline", params={"market": market, "period": period, "limit": limit})
+			r.raise_for_status()
+			return normalize_klines(r.json())
 
 
 class Paper:
