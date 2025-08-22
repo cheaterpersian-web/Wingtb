@@ -361,6 +361,12 @@ async def main() -> None:
 		period, limit = period_map[scope]
 		try:
 			kl = await cx.klines(market, period, limit)
+			if not kl and scope == "month":
+				period, limit = "15min", 1440
+				kl = await cx.klines(market, period, limit)
+			if not kl and scope == "15d":
+				period, limit = "5min", 576
+				kl = await cx.klines(market, period, limit)
 			if not kl:
 				await message.answer("ERR backtest: no klines returned")
 				return
@@ -457,6 +463,12 @@ async def main() -> None:
 		period_map = {"hour": ("1min", 120), "day": ("5min", 576), "15d": ("15min", 1440), "month": ("5min", 2000)}
 		period, limit = period_map.get(scope, ("5min", 576))
 		kl = await cx.klines(market, period, limit)
+		if not kl and scope == "month":
+			period, limit = "15min", 1440
+			kl = await cx.klines(market, period, limit)
+		if not kl and scope == "15d":
+			period, limit = "5min", 576
+			kl = await cx.klines(market, period, limit)
 		if not kl:
 			await message.answer("ERR optimize: no klines returned")
 			return
