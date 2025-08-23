@@ -421,27 +421,36 @@ async def main() -> None:
 			scope = parts[2].lower() if len(parts) > 2 else "day"
 		else:
 			scope = parts[1].lower() if len(parts) > 1 else "day"
-		period_map = {"hour": ("1min", 120), "day": ("5min", 288), "15d": ("30min", 720), "month": ("30min", 1440), "2m": ("2hour", 720), "3m": ("4hour", 540)}
+		period_map = {"hour": ("1min", 120), "day": ("5min", 288), "15d": ("15min", 1440), "month": ("1hour", 720), "2m": ("4hour", 360), "3m": ("1day", 90)}
 		if scope not in period_map:
 			scope = "day"
 		period, limit = period_map[scope]
 		try:
 			kl = await cx.klines(market, period, limit)
-			if not kl and scope == "month":
-				period, limit = "15min", 1440
+			# fallbacks per scope
+			if not kl and scope == "day":
+				period, limit = "1min", 1440
 				kl = await cx.klines(market, period, limit)
-			# extra fallbacks for multi-month scopes
+			if not kl and scope == "15d":
+				period, limit = "30min", 720
+				kl = await cx.klines(market, period, limit)
+			if not kl and scope == "month":
+				period, limit = "30min", 1440
+				kl = await cx.klines(market, period, limit)
+			if not kl and scope == "month":
+				period, limit = "2hour", 360
+				kl = await cx.klines(market, period, limit)
+			if not kl and scope == "2m":
+				period, limit = "2hour", 720
+				kl = await cx.klines(market, period, limit)
 			if not kl and scope == "2m":
 				period, limit = "1hour", 1440
 				kl = await cx.klines(market, period, limit)
 			if not kl and scope == "3m":
-				period, limit = "2hour", 1080
+				period, limit = "4hour", 540
 				kl = await cx.klines(market, period, limit)
-			if not kl and scope in ("month", "2m", "3m"):
-				period, limit = "30min", 1440
-				kl = await cx.klines(market, period, limit)
-			if not kl and scope in ("month", "2m", "3m"):
-				period, limit = "5min", 288
+			if not kl and scope == "3m":
+				period, limit = "1hour", 2160
 				kl = await cx.klines(market, period, limit)
 			if not kl:
 				await message.answer("ERR backtest: no klines returned")
@@ -537,16 +546,26 @@ async def main() -> None:
 	async def optimize(message: Message):
 		parts = message.text.split()
 		scope = parts[1].lower() if len(parts) > 1 else "day"
-		period_map = {"hour": ("1min", 120), "day": ("5min", 288), "15d": ("30min", 720), "month": ("30min", 1440), "2m": ("1hour", 1440), "3m": ("1hour", 2160)}
+		period_map = {"hour": ("1min", 120), "day": ("5min", 288), "15d": ("15min", 1440), "month": ("1hour", 720), "2m": ("4hour", 360), "3m": ("1day", 90)}
 		if scope not in period_map:
 			scope = "day"
 		period, limit = period_map[scope]
 		kl = await cx.klines(market, period, limit)
-		if not kl and scope == "month":
-			period, limit = "15min", 1440
+		# fallbacks per scope
+		if not kl and scope == "day":
+			period, limit = "1min", 1440
 			kl = await cx.klines(market, period, limit)
-		if not kl and scope in ("month", "2m", "3m"):
-			period, limit = "1hour", 1440 if scope == "2m" else (2160 if scope == "3m" else 720)
+		if not kl and scope == "15d":
+			period, limit = "30min", 720
+			kl = await cx.klines(market, period, limit)
+		if not kl and scope == "month":
+			period, limit = "30min", 1440
+			kl = await cx.klines(market, period, limit)
+		if not kl and scope == "2m":
+			period, limit = "2hour", 720
+			kl = await cx.klines(market, period, limit)
+		if not kl and scope == "3m":
+			period, limit = "4hour", 540
 			kl = await cx.klines(market, period, limit)
 		if not kl:
 			await message.answer("ERR optimize: no klines returned")
