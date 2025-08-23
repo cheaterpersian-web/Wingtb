@@ -421,7 +421,7 @@ async def main() -> None:
 			scope = parts[2].lower() if len(parts) > 2 else "day"
 		else:
 			scope = parts[1].lower() if len(parts) > 1 else "day"
-		period_map = {"hour": ("1min", 120), "day": ("5min", 288), "15d": ("30min", 720), "month": ("30min", 1440), "2m": ("1hour", 1440), "3m": ("1hour", 2160)}
+		period_map = {"hour": ("1min", 120), "day": ("5min", 288), "15d": ("30min", 720), "month": ("30min", 1440), "2m": ("2hour", 720), "3m": ("4hour", 540)}
 		if scope not in period_map:
 			scope = "day"
 		period, limit = period_map[scope]
@@ -430,8 +430,15 @@ async def main() -> None:
 			if not kl and scope == "month":
 				period, limit = "15min", 1440
 				kl = await cx.klines(market, period, limit)
+			# extra fallbacks for multi-month scopes
+			if not kl and scope == "2m":
+				period, limit = "1hour", 1440
+				kl = await cx.klines(market, period, limit)
+			if not kl and scope == "3m":
+				period, limit = "2hour", 1080
+				kl = await cx.klines(market, period, limit)
 			if not kl and scope in ("month", "2m", "3m"):
-				period, limit = "1hour", 1440 if scope == "2m" else (2160 if scope == "3m" else 720)
+				period, limit = "30min", 1440
 				kl = await cx.klines(market, period, limit)
 			if not kl and scope in ("month", "2m", "3m"):
 				period, limit = "5min", 288
@@ -463,6 +470,7 @@ async def main() -> None:
 				lb, ub = min(lb, ub), max(lb, ub)
 			step = (ub - lb) / max(grids_n, 1)
 			grid_lines = [lb + i * step for i in range(grids_n + 1)]
+			cutoff_bars = max(5, int(0.02 * len(closes)))
 			usdt = 10000.0
 			fee_bps = 10.0
 			open_lots: List[Dict[str, float]] = []
@@ -491,8 +499,8 @@ async def main() -> None:
 					else:
 						new_open.append(lot)
 				open_lots = new_open
-				# detect downward crosses of grid lines and buy
-				if usdt > amount_usdt and lb <= px <= ub:
+				# detect downward crosses of grid lines and buy (avoid buys near the very end)
+				if usdt > amount_usdt and lb <= px <= ub and i < len(closes) - cutoff_bars:
 					for line in grid_lines:
 						if px <= line < prev_px:
 							amount = min(amount_usdt, usdt)
