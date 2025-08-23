@@ -434,8 +434,11 @@ async def main() -> None:
 			if not kl and scope == "month":
 				period, limit = "15min", 1440
 				kl = await cx.klines(market, period, limit)
-			if not kl and scope == "15d":
-				period, limit = "5min", 576
+			if not kl and scope == "month":
+				period, limit = "1hour", 720
+				kl = await cx.klines(market, period, limit)
+			if not kl and scope == "month":
+				period, limit = "5min", 288
 				kl = await cx.klines(market, period, limit)
 			if not kl:
 				await message.answer("ERR backtest: no klines returned")
@@ -509,11 +512,16 @@ async def main() -> None:
 				s_i = slow[i] if i < len(slow) else px
 				allow_entry = False
 				if mode_breakout:
-					# Trend-following breakout: close breaking below Donchian low for short-side mean-rev BUY (since we trade spot long-only, enter on pullback to Donchian low in uptrend?)
-					# Simpler: enter when price breaks above Donchian high and EMA12>EMA26>EMA200 and RSI>=50 (momentum buy)
-					trend_ok = (i < len(ema200) and f_i > s_i and s_i > ema200[i]) if len(closes) >= 200 else (f_i > s_i)
-					dc_break = (i < len(dc_high) and px >= dc_high[i])
-					allow_entry = (i - last_idx >= cooldown_bars and dc_break and trend_ok and r_i >= 50)
+					# Momentum breakout: price breaks above Donchian high with trend and RSI confirm
+					trend_ok = (i < len(ema200) and f_i > s_i and (len(closes) < 200 or s_i > ema200[i])) if len(fast) else True
+					prev_c = closes[i - 1] if i > 0 else px
+					dc_now = dc_high[i] if i < len(dc_high) else px
+					dc_prev = dc_high[i - 1] if i > 0 and i - 1 < len(dc_high) else dc_now
+					std_i = bb_std[i] if i < len(bb_std) else 0.0
+					strong_break = (px >= dc_now + 0.05 * std_i)
+					cross_break = (prev_c <= dc_prev and px > dc_now)
+					dc_break = strong_break or cross_break
+					allow_entry = (i - last_idx >= cooldown_bars and dc_break and trend_ok and r_i >= 45)
 				elif not mode_plus:
 					allow_entry = (i - last_idx >= cooldown_bars and r_i <= 45 and f_i < s_i)
 				else:
