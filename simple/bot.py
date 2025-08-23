@@ -248,7 +248,7 @@ async def main() -> None:
 	dp = Dispatcher()
 	cx = CoinExClient()
 	paper = Paper(usdt=10000)
-	grid_per_side = 12
+	grid_per_side = 16
 	step_pct = 0.005
 	anchor_px: float = 0.0
 	dynamic_center = True
@@ -299,7 +299,7 @@ async def main() -> None:
 				if center > 0:
 					for i in range(grid_per_side):
 						step = ind["atr"] if ind["atr"] > 0 else (center * step_pct)
-						step = max(min(step, center * 0.006), center * 0.001)
+						step = max(min(step, center * 0.003), center * 0.0005)
 						buy_lv = center - step * (i + 1)
 						sell_lv = center + step * (i + 1)
 						if p <= buy_lv:
@@ -356,7 +356,7 @@ async def main() -> None:
 	async def backtest(message: Message):
 		parts = message.text.split()
 		scope = parts[1].lower() if len(parts) > 1 else "day"
-		period_map = {"hour": ("1min", 120), "day": ("5min", 288), "15d": ("30min", 720), "month": ("1hour", 720)}
+		period_map = {"hour": ("1min", 120), "day": ("5min", 288), "15d": ("30min", 720), "month": ("30min", 1440)}
 		if scope not in period_map:
 			scope = "day"
 		period, limit = period_map[scope]
@@ -391,12 +391,12 @@ async def main() -> None:
 			loss_usdt = 0.0
 			entries = 0
 			last_idx = -9999
-			cooldown_bars = 2
+			cooldown_bars = 1
 			for i in range(start, len(closes)):
 				px = closes[i]
 				center_bt = slow[i] if i < len(slow) else px
 				atr_i = a_list[i] if i < len(a_list) else 0.0
-				stepv = max(min(atr_i if atr_i > 0 else center_bt * step_pct, center_bt * 0.006), center_bt * 0.001)
+				stepv = max(min(atr_i if atr_i > 0 else center_bt * step_pct, center_bt * 0.003), center_bt * 0.0005)
 				# exits
 				new_open: List[Dict[str, float]] = []
 				for lot in open_lots:
@@ -427,7 +427,7 @@ async def main() -> None:
 				r_i = r[i] if i < len(r) else 50.0
 				f_i = fast[i] if i < len(fast) else px
 				s_i = slow[i] if i < len(slow) else px
-				if i - last_idx >= cooldown_bars and r_i <= 35 and f_i < s_i:
+				if i - last_idx >= cooldown_bars and r_i <= 45 and f_i < s_i:
 					for j in range(grid_per_side):
 						buy_lv = center_bt - stepv * (j + 1)
 						if px <= buy_lv and usdt > base_amount_usdt:
@@ -437,8 +437,8 @@ async def main() -> None:
 							cost = amount + fee_in
 							usdt -= cost
 							# per lot TP/SL
-							tp = px + atr_i * 0.6
-							sl = px - atr_i * 1.0
+							tp = px + atr_i * 0.5
+							sl = px - atr_i * 0.9
 							open_lots.append({"qty": q, "entry": px, "cost": cost, "tp": tp, "sl": sl, "trail": 0.0})
 							trades += 1
 							entries += 1
@@ -472,7 +472,7 @@ async def main() -> None:
 	async def optimize(message: Message):
 		parts = message.text.split()
 		scope = parts[1].lower() if len(parts) > 1 else "day"
-		period_map = {"hour": ("1min", 120), "day": ("5min", 288), "15d": ("30min", 720), "month": ("1hour", 720)}
+		period_map = {"hour": ("1min", 120), "day": ("5min", 288), "15d": ("30min", 720), "month": ("30min", 1440)}
 		period, limit = period_map.get(scope, ("5min", 576))
 		kl = await cx.klines(market, period, limit)
 		if not kl and scope == "month":
@@ -514,7 +514,7 @@ async def main() -> None:
 								px = closes[i]
 								center_bt = slow_all[i] if i < len(slow_all) else px
 								atr_i = atr_all[i] if i < len(atr_all) else 0.0
-								stepv = max(min(atr_i if atr_i > 0 else center_bt * step_pct, center_bt * 0.006), center_bt * 0.001)
+								stepv = max(min(atr_i if atr_i > 0 else center_bt * step_pct, center_bt * 0.003), center_bt * 0.0005)
 								# exits
 								new_open: List[Dict[str, float]] = []
 								for lot in open_lots:
@@ -542,7 +542,7 @@ async def main() -> None:
 								r_i = rsi_all[i] if i < len(rsi_all) else 50.0
 								f_i = fast_all[i] if i < len(fast_all) else px
 								s_i = slow_all[i] if i < len(slow_all) else px
-								if i - last_idx >= cooldown_bars and r_i <= buy_rsi_thr and f_i < s_i:
+								if i - last_idx >= cooldown_bars and r_i <= max(35, buy_rsi_thr - 5) and f_i < s_i:
 									for j in range(grids):
 										buy_lv = center_bt - stepv * (j + 1)
 										if px <= buy_lv and usdt > base_amount_usdt:
