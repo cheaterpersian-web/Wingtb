@@ -8,9 +8,9 @@ import time
 from typing import List, Dict, Any
 
 import httpx
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from dotenv import load_dotenv
 from app.datafeed.coinex_rest import CoinExREST
 
@@ -320,7 +320,68 @@ async def main() -> None:
 
 	@dp.message(Command("start"))
 	async def start(message: Message):
-		await message.answer("Simple CoinEx Paper Bot online. /status /buy /sell /grid_on /grid_off /price /grid_levels /backtest grid <scope> [lower upper grids tp_pct base]")
+		kb = InlineKeyboardMarkup(inline_keyboard=[
+			[InlineKeyboardButton(text="وضعیت 💼", callback_data="menu:status"), InlineKeyboardButton(text="قیمت ⚡", callback_data="menu:price")],
+			[InlineKeyboardButton(text="Grid ON ▶️", callback_data="grid:on"), InlineKeyboardButton(text="Grid OFF ⏹", callback_data="grid:off")],
+			[InlineKeyboardButton(text="Grid Levels 📐", callback_data="grid:levels")],
+			[InlineKeyboardButton(text="Amount +10", callback_data="amt:+10"), InlineKeyboardButton(text="Amount -10", callback_data="amt:-10")],
+			[InlineKeyboardButton(text="Preset: 20gr 0.5% tp1% sl1%", callback_data="preset:20:0.005:0.01:0.01")],
+		])
+		await message.answer("Simple CoinEx Paper Bot online.", reply_markup=kb)
+
+	@dp.callback_query(F.data == "menu:status")
+	async def cb_status(q: CallbackQuery):
+		await q.message.edit_text(paper.status() + f" | BASE={base_amount_usdt:.2f} USDT")
+		await q.answer()
+
+	@dp.callback_query(F.data == "menu:price")
+	async def cb_price(q: CallbackQuery):
+		p = await cx.price(market)
+		await paper.on_price(p)
+		await q.message.edit_text(f"PX={p:.8f}")
+		await q.answer()
+
+	@dp.callback_query(F.data == "grid:on")
+	async def cb_grid_on(q: CallbackQuery):
+		q.message.text = "/grid_on"
+		await grid_on(Message.model_construct(message_id=q.message.message_id, date=q.message.date, chat=q.message.chat))
+		await q.answer("Grid ON")
+
+	@dp.callback_query(F.data == "grid:off")
+	async def cb_grid_off(q: CallbackQuery):
+		await grid_off(Message.model_construct(message_id=q.message.message_id, date=q.message.date, chat=q.message.chat))
+		await q.answer("Grid OFF")
+
+	@dp.callback_query(F.data == "grid:levels")
+	async def cb_grid_levels(q: CallbackQuery):
+		await grid_levels(Message.model_construct(message_id=q.message.message_id, date=q.message.date, chat=q.message.chat))
+		await q.answer()
+
+	@dp.callback_query(F.data.startswith("amt:"))
+	async def cb_amount(q: CallbackQuery):
+		nonlocal base_amount_usdt
+		try:
+			if q.data == "amt:+10":
+				base_amount_usdt += 10
+			else:
+				base_amount_usdt = max(1.0, base_amount_usdt - 10)
+			await q.message.edit_text(paper.status() + f" | BASE={base_amount_usdt:.2f} USDT")
+		except Exception:
+			pass
+		await q.answer("Updated")
+
+	@dp.callback_query(F.data.startswith("preset:"))
+	async def cb_preset(q: CallbackQuery):
+		parts = q.data.split(":")
+		gr = int(parts[1])
+		st = float(parts[2])
+		tp = float(parts[3])
+		sl = float(parts[4])
+		# call grid_on with params
+		msg = Message.model_construct(message_id=q.message.message_id, date=q.message.date, chat=q.message.chat)
+		msg.text = f"/grid_on {gr} {st} {tp} {sl} {base_amount_usdt}"
+		await grid_on(msg)
+		await q.answer("Preset applied")
 
 	@dp.message(Command("status"))
 	async def status(message: Message):
