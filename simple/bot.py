@@ -66,6 +66,39 @@ def rsi(values: List[float], period: int = 14) -> List[float]:
 	return rsivals
 
 
+def sma(values: List[float], period: int) -> List[float]:
+	if period <= 0 or not values:
+		return []
+	out: List[float] = []
+	window: List[float] = []
+	sum_v = 0.0
+	for v in values:
+		window.append(v)
+		sum_v += v
+		if len(window) > period:
+			sum_v -= window.pop(0)
+		out.append(sum_v / len(window))
+	return out
+
+
+def rolling_std(values: List[float], period: int) -> List[float]:
+	if period <= 1 or not values:
+		return [0.0] * len(values)
+	out: List[float] = []
+	window: List[float] = []
+	for v in values:
+		window.append(v)
+		if len(window) > period:
+			window.pop(0)
+		if len(window) < 2:
+			out.append(0.0)
+			continue
+		m = sum(window) / len(window)
+		var = sum((x - m) * (x - m) for x in window) / (len(window) - 1)
+		out.append(var ** 0.5)
+	return out
+
+
 def atr_series(klines: List[Dict[str, Any]], period: int = 14) -> List[float]:
 	if len(klines) < 2:
 		return [0.0] * len(klines)
@@ -261,7 +294,7 @@ async def main() -> None:
 
 	@dp.message(Command("start"))
 	async def start(message: Message):
-		await message.answer("Simple CoinEx Paper Bot online. /status /buy /sell /grid_on /grid_off /price /grid_levels /backtest /optimize")
+		await message.answer("Simple CoinEx Paper Bot online. /status /buy /sell /grid_on /grid_off /price /grid_levels /backtest [/backtest plus <scope>] /optimize")
 
 	@dp.message(Command("status"))
 	async def status(message: Message):
@@ -355,7 +388,13 @@ async def main() -> None:
 	@dp.message(Command("backtest"))
 	async def backtest(message: Message):
 		parts = message.text.split()
-		scope = parts[1].lower() if len(parts) > 1 else "day"
+		mode_plus = False
+		scope = "day"
+		if len(parts) > 1 and parts[1].lower() == "plus":
+			mode_plus = True
+			scope = parts[2].lower() if len(parts) > 2 else "day"
+		else:
+			scope = parts[1].lower() if len(parts) > 1 else "day"
 		period_map = {"hour": ("1min", 120), "day": ("5min", 288), "15d": ("30min", 720), "month": ("30min", 1440)}
 		if scope not in period_map:
 			scope = "day"
@@ -379,6 +418,13 @@ async def main() -> None:
 			slow = ema(closes, 26)
 			r = rsi(closes, 14)
 			a_list = atr_series(kl, 14)
+			if mode_plus:
+				bb_mid = sma(closes, 20)
+				bb_std = rolling_std(closes, 20)
+				bb_up = [ (bb_mid[i] + 2.0 * bb_std[i]) if i < len(bb_mid) else c for i, c in enumerate(closes) ]
+				bb_dn = [ (bb_mid[i] - 2.0 * bb_std[i]) if i < len(bb_mid) else c for i, c in enumerate(closes) ]
+				# tighten step and cooldown in plus mode
+				cooldown_bars = 1
 			start = 30 if len(closes) > 30 else 1
 			usdt = 10000.0
 			fee_bps = 10.0
@@ -427,7 +473,14 @@ async def main() -> None:
 				r_i = r[i] if i < len(r) else 50.0
 				f_i = fast[i] if i < len(fast) else px
 				s_i = slow[i] if i < len(slow) else px
-				if i - last_idx >= cooldown_bars and r_i <= 45 and f_i < s_i:
+				allow_entry = False
+				if not mode_plus:
+					allow_entry = (i - last_idx >= cooldown_bars and r_i <= 45 and f_i < s_i)
+				else:
+					# plus mode: mean-reversion (touch lower band) + RSI<=50 + EMA12<EMA26
+					bb_ok = (i < len(bb_dn) and px <= bb_dn[i])
+					allow_entry = (i - last_idx >= cooldown_bars and bb_ok and r_i <= 50 and f_i < s_i)
+				if allow_entry:
 					for j in range(grid_per_side):
 						buy_lv = center_bt - stepv * (j + 1)
 						if px <= buy_lv and usdt > base_amount_usdt:
@@ -436,9 +489,13 @@ async def main() -> None:
 							fee_in = amount * (fee_bps / 10000.0)
 							cost = amount + fee_in
 							usdt -= cost
-							# per lot TP/SL
-							tp = px + atr_i * 0.5
-							sl = px - atr_i * 0.9
+							# per lot TP/SL (plus mode slightly wider on TP, tighter SL)
+							if mode_plus:
+								tp = px + atr_i * 0.7
+								sl = px - atr_i * 0.8
+							else:
+								tp = px + atr_i * 0.5
+								sl = px - atr_i * 0.9
 							open_lots.append({"qty": q, "entry": px, "cost": cost, "tp": tp, "sl": sl, "trail": 0.0})
 							trades += 1
 							entries += 1
@@ -473,7 +530,9 @@ async def main() -> None:
 		parts = message.text.split()
 		scope = parts[1].lower() if len(parts) > 1 else "day"
 		period_map = {"hour": ("1min", 120), "day": ("5min", 288), "15d": ("30min", 720), "month": ("30min", 1440)}
-		period, limit = period_map.get(scope, ("5min", 576))
+		if scope not in period_map:
+			scope = "day"
+		period, limit = period_map[scope]
 		kl = await cx.klines(market, period, limit)
 		if not kl and scope == "month":
 			period, limit = "15min", 1440
