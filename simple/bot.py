@@ -314,7 +314,7 @@ async def main() -> None:
 	last_signal_ts: float = 0.0
 	last_signal_side: str = ""
 	min_cooldown = 3.0
-	k_period = "5min"
+	k_period = "15min"
 	ind = {"ema_fast": 0.0, "ema_slow": 0.0, "rsi": 50.0, "atr": 0.0}
 	base_amount_usdt: float = float(os.getenv("BASE_ORDER_USDT", "50"))
 
@@ -336,6 +336,7 @@ async def main() -> None:
 			await message.answer(f"ERR: {e}")
 
 	running = {"on": False}
+	live = {"grid": None}  # {lb, ub, lines, tp_pct, sl_pct, amount, open_lots, prev_px}
 
 	async def loop_prices(chat_id: int):
 		while running["on"]:
@@ -343,38 +344,50 @@ async def main() -> None:
 				p = await cx.price(market)
 				await paper.on_price(p)
 				logger.info("price updated: %.8f", p)
-				if int(time.time()) % 10 == 0:
-					kl = await cx.klines(market, k_period, 120)
-					closes = [float(k.get("close") or 0.0) for k in kl]
-					fast = ema(closes, 12)
-					slow = ema(closes, 26)
-					r = rsi(closes, 14)
-					a_list = atr_series(kl, 14)
-					ind["ema_fast"] = fast[-1] if fast else 0.0
-					ind["ema_slow"] = slow[-1] if slow else 0.0
-					ind["rsi"] = r[-1] if r else 50.0
-					ind["atr"] = a_list[-1] if a_list else 0.0
-				center = p if dynamic_center and p > 0 else anchor_px
-				if center > 0:
-					for i in range(grid_per_side):
-						step = ind["atr"] if ind["atr"] > 0 else (center * step_pct)
-						step = max(min(step, center * 0.003), center * 0.0005)
-						buy_lv = center - step * (i + 1)
-						sell_lv = center + step * (i + 1)
-						if p <= buy_lv:
-							if ind["rsi"] <= 35 and ind["ema_fast"] < ind["ema_slow"]:
-								if (time.time() - last_signal_ts) > min_cooldown or last_signal_side != "BUY":
-									await bot.send_message(chat_id, f"✅ BUY {market} @ {p:.8f} | lvl={buy_lv:.8f} | RSI={ind['rsi']:.1f}")
-									last_signal_ts = time.time()
-									last_signal_side = "BUY"
-							break
-						if p >= sell_lv:
-							if ind["rsi"] >= 65 and ind["ema_fast"] > ind["ema_slow"]:
-								if (time.time() - last_signal_ts) > min_cooldown or last_signal_side != "SELL":
-									await bot.send_message(chat_id, f"✅ SELL {market} @ {p:.8f} | lvl={sell_lv:.8f} | RSI={ind['rsi']:.1f}")
-									last_signal_ts = time.time()
-									last_signal_side = "SELL"
-							break
+				# Live grid execution
+				if live["grid"]:
+					g = live["grid"]
+					prev_px = g.get("prev_px", p)
+					lines = g["lines"]
+					amount = g["amount"]
+					tp_pct = g["tp_pct"]
+					sl_pct = g["sl_pct"]
+					# 1) Process TP/SL on open lots
+					new_open = []
+					for lot in g["open_lots"]:
+						# SL first
+						if p <= lot.get("sl", 0.0):
+							# execute sell
+							qty = lot["qty"]
+							_ = await paper.sell(market, qty)
+							await bot.send_message(chat_id, f"🔻 SL SELL {market} qty={qty:.8f} @ {p:.8f}")
+							continue
+						if p >= lot["tp"]:
+							qty = lot["qty"]
+							_ = await paper.sell(market, qty)
+							await bot.send_message(chat_id, f"✅ TP SELL {market} qty={qty:.8f} @ {p:.8f}")
+							continue
+						new_open.append(lot)
+					g["open_lots"] = new_open
+					# 2) Detect downward crosses and buy (limit fills)
+					if paper.usdt > amount and g["lb"] <= p <= g["ub"]:
+						for line in lines:
+							if p <= line < prev_px:
+								buy_amount = min(amount, paper.usdt)
+								if buy_amount <= 0:
+									break
+								_ = await paper.buy(market, buy_amount)
+								qty = buy_amount / max(p, 1e-9)
+								g["open_lots"].append({
+									"qty": qty,
+									"entry": p,
+									"cost": buy_amount + (buy_amount * (paper.fee_bps / 10000.0)),
+									"tp": p * (1.0 + tp_pct),
+									"sl": p * (1.0 - sl_pct),
+								})
+								await bot.send_message(chat_id, f"🟢 BUY {market} amount={buy_amount:.2f} qty={qty:.8f} @ {p:.8f} | tp={p*(1+tp_pct):.8f} sl={p*(1-sl_pct):.8f}")
+								# continue checking deeper lines
+					g["prev_px"] = p
 				await asyncio.sleep(2)
 			except Exception as e:
 				logger.warning("price loop error: %s", e)
@@ -388,27 +401,44 @@ async def main() -> None:
 		nonlocal anchor_px
 		anchor_px = await cx.price(market)
 		await paper.on_price(anchor_px)
+		# parse optional params: /grid_on [grids step_pct tp_pct sl_pct amount]
+		parts = message.text.split()
+		grids_n = int(parts[1]) if len(parts) > 1 else 20
+		step_p = float(parts[2]) if len(parts) > 2 else 0.005
+		tp_p = float(parts[3]) if len(parts) > 3 else 0.01
+		sl_p = float(parts[4]) if len(parts) > 4 else 0.01
+		amt = float(parts[5]) if len(parts) > 5 else base_amount_usdt
+		# clamp params
+		grids_n = max(10, min(30, grids_n))
+		step_p = max(0.003, min(0.01, step_p))
+		tp_p = max(0.003, min(0.02, tp_p))
+		sl_p = max(0.005, min(0.03, sl_p))
+		# build symmetric grid around center with 15m context
+		center = anchor_px
+		step_abs = center * step_p
+		lb = center - step_abs * grids_n
+		ub = center + step_abs * grids_n
+		lines = [lb + i * step_abs for i in range(grids_n * 2 + 1)]
+		live["grid"] = {"lb": lb, "ub": ub, "lines": lines, "tp_pct": tp_p, "sl_pct": sl_p, "amount": amt, "open_lots": [], "prev_px": center}
 		running["on"] = True
 		asyncio.create_task(loop_prices(message.chat.id))
-		await message.answer(f"Streaming live prices… anchor={anchor_px:.8f}")
+		await message.answer(f"Grid ON (15m) | center={center:.8f} grids={grids_n*2+1} step={step_p*100:.2f}% tp={tp_p*100:.2f}% sl={sl_p*100:.2f}% amount={amt:.2f}\nStreaming…")
 
 	@dp.message(Command("grid_off"))
 	async def grid_off(message: Message):
 		running["on"] = False
+		live["grid"] = None
 		await message.answer("Stopped.")
 
 	@dp.message(Command("grid_levels"))
 	async def grid_levels(message: Message):
-		center = await cx.price(market)
-		kl = await cx.klines(market, k_period, 120)
-		a_list = atr_series(kl, 14)
-		step_val = a_list[-1] if a_list else 0.0
-		step = max(min(step_val if step_val > 0 else center * step_pct, center * 0.006), center * 0.001)
-		levels_down = [center - step * (i + 1) for i in range(grid_per_side)]
-		levels_up = [center + step * (i + 1) for i in range(grid_per_side)]
-		text = f"Center: {center:.8f} | step≈{step:.8f}\n"
-		text += "Buy levels:\n" + "\n".join(f"{lv:.8f}" for lv in levels_down)
-		text += "\nSell levels:\n" + "\n".join(f"{lv:.8f}" for lv in levels_up)
+		g = live.get("grid")
+		if not g:
+			await message.answer("Grid is OFF. Use /grid_on")
+			return
+		lines = g["lines"]
+		text = f"LB={g['lb']:.8f} UB={g['ub']:.8f} | lines={len(lines)} tp={g['tp_pct']*100:.2f}% sl={g['sl_pct']*100:.2f}%\n"
+		text += "Lines:\n" + "\n".join(f"{lv:.8f}" for lv in lines[:min(len(lines), 30)])
 		await message.answer(text)
 
 	@dp.message(Command("backtest"))
