@@ -416,12 +416,16 @@ async def main() -> None:
 		parts = message.text.split()
 		mode_plus = False
 		mode_breakout = False
+		mode_grid = False
 		scope = "day"
 		if len(parts) > 1 and parts[1].lower() == "plus":
 			mode_plus = True
 			scope = parts[2].lower() if len(parts) > 2 else "day"
 		elif len(parts) > 1 and parts[1].lower() == "breakout":
 			mode_breakout = True
+			scope = parts[2].lower() if len(parts) > 2 else "day"
+		elif len(parts) > 1 and parts[1].lower() == "grid":
+			mode_grid = True
 			scope = parts[2].lower() if len(parts) > 2 else "day"
 		else:
 			scope = parts[1].lower() if len(parts) > 1 else "day"
@@ -446,6 +450,90 @@ async def main() -> None:
 			closes = [float(k.get("close") or 0.0) for k in kl]
 			if not closes:
 				await message.answer("ERR backtest: no closes extracted")
+				return
+			if mode_grid:
+				# Grid parameters from args: /backtest grid <scope> [lower upper grids tp_pct base]
+				last_px = closes[-1]
+				def _get(idx: int, cast):
+					try:
+						return cast(parts[idx])
+					except Exception:
+						return None
+				try:
+					arg_start = 3 if parts[1].lower() == "grid" else 0
+				except Exception:
+					arg_start = 0
+				lb = _get(arg_start, float) or (last_px * 0.95)
+				ub = _get(arg_start + 1, float) or (last_px * 1.05)
+				grids_n = int(_get(arg_start + 2, int) or 20)
+				tp_pct = (_get(arg_start + 3, float) or 1.0) / 100.0
+				amount_usdt = float(_get(arg_start + 4, float) or base_amount_usdt)
+				if ub <= lb:
+					lb, ub = min(lb, ub), max(lb, ub)
+				step = (ub - lb) / max(grids_n, 1)
+				grid_lines = [lb + i * step for i in range(grids_n + 1)]
+				usdt = 10000.0
+				fee_bps = 10.0
+				open_lots: List[Dict[str, float]] = []
+				wins = losers = entries = exits = 0
+				profit_usdt = loss_usdt = 0.0
+				for i in range(1, len(closes)):
+					prev_px = closes[i - 1]
+					px = closes[i]
+					# process TP sells
+					new_open: List[Dict[str, float]] = []
+					for lot in open_lots:
+						if px >= lot["tp"]:
+							notional = lot["qty"] * px
+							fee = notional * (fee_bps / 10000.0)
+							proceeds = notional - fee
+							realized = proceeds - lot["cost"]
+							usdt += proceeds
+							exits += 1
+							if realized > 0:
+								wins += 1
+								profit_usdt += realized
+							else:
+								losers += 1
+								loss_usdt += (-realized)
+						else:
+							new_open.append(lot)
+					open_lots = new_open
+					# detect downward crosses of grid lines and buy
+					if usdt > amount_usdt and lb <= px <= ub:
+						for line in grid_lines:
+							if px <= line < prev_px:
+								amount = min(amount_usdt, usdt)
+								if amount <= 0:
+									break
+								qty = amount / max(px, 1e-9)
+								fee_in = amount * (fee_bps / 10000.0)
+								cost = amount + fee_in
+								usdt -= cost
+								open_lots.append({"qty": qty, "entry": px, "cost": cost, "tp": px * (1.0 + tp_pct)})
+								entries += 1
+								# continue checking lower lines too in same bar
+				# finalize: liquidate remaining at last price
+				final_px = closes[-1]
+				for lot in open_lots:
+					notional = lot["qty"] * final_px
+					fee = notional * (fee_bps / 10000.0)
+					proceeds = notional - fee
+					realized = proceeds - lot["cost"]
+					usdt += proceeds
+					exits += 1
+					if realized > 0:
+						wins += 1
+						profit_usdt += realized
+					else:
+						losers += 1
+						loss_usdt += (-realized)
+				win_rate = (wins / exits * 100.0) if exits else 0.0
+				await message.answer(
+					f"Backtest ({scope})\n"
+					f"Entries={entries} | Exits={exits} | Wins={wins} | Losers={losers} | WinRate={win_rate:.2f}%\n"
+					f"Profit={profit_usdt:.2f} | Loss={loss_usdt:.2f} | Final Equity={usdt:.2f}"
+				)
 				return
 			fast = ema(closes, 12)
 			slow = ema(closes, 26)
