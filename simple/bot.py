@@ -320,7 +320,7 @@ async def main() -> None:
 
 	@dp.message(Command("start"))
 	async def start(message: Message):
-		await message.answer("Simple CoinEx Paper Bot online. /status /buy /sell /grid_on /grid_off /price /grid_levels /backtest [/backtest plus <scope>] /optimize")
+		await message.answer("Simple CoinEx Paper Bot online. /status /buy /sell /grid_on /grid_off /price /grid_levels /backtest grid <scope> [lower upper grids tp_pct base]")
 
 	@dp.message(Command("status"))
 	async def status(message: Message):
@@ -414,17 +414,9 @@ async def main() -> None:
 	@dp.message(Command("backtest"))
 	async def backtest(message: Message):
 		parts = message.text.split()
-		mode_plus = False
-		mode_breakout = False
 		mode_grid = False
 		scope = "day"
-		if len(parts) > 1 and parts[1].lower() == "plus":
-			mode_plus = True
-			scope = parts[2].lower() if len(parts) > 2 else "day"
-		elif len(parts) > 1 and parts[1].lower() == "breakout":
-			mode_breakout = True
-			scope = parts[2].lower() if len(parts) > 2 else "day"
-		elif len(parts) > 1 and parts[1].lower() == "grid":
+		if len(parts) > 1 and parts[1].lower() == "grid":
 			mode_grid = True
 			scope = parts[2].lower() if len(parts) > 2 else "day"
 		else:
@@ -451,200 +443,68 @@ async def main() -> None:
 			if not closes:
 				await message.answer("ERR backtest: no closes extracted")
 				return
-			if mode_grid:
-				# Grid parameters from args: /backtest grid <scope> [lower upper grids tp_pct base]
-				last_px = closes[-1]
-				def _get(idx: int, cast):
-					try:
-						return cast(parts[idx])
-					except Exception:
-						return None
+			# Only grid mode supported now (default to grid if not specified)
+			if not mode_grid:
+				mode_grid = True
+			# Grid parameters from args: /backtest grid <scope> [lower upper grids tp_pct base]
+			last_px = closes[-1]
+			def _get(idx: int, cast):
 				try:
-					arg_start = 3 if parts[1].lower() == "grid" else 0
+					return cast(parts[idx])
 				except Exception:
-					arg_start = 0
-				lb = _get(arg_start, float) or (last_px * 0.95)
-				ub = _get(arg_start + 1, float) or (last_px * 1.05)
-				grids_n = int(_get(arg_start + 2, int) or 20)
-				tp_pct = (_get(arg_start + 3, float) or 1.0) / 100.0
-				amount_usdt = float(_get(arg_start + 4, float) or base_amount_usdt)
-				if ub <= lb:
-					lb, ub = min(lb, ub), max(lb, ub)
-				step = (ub - lb) / max(grids_n, 1)
-				grid_lines = [lb + i * step for i in range(grids_n + 1)]
-				usdt = 10000.0
-				fee_bps = 10.0
-				open_lots: List[Dict[str, float]] = []
-				wins = losers = entries = exits = 0
-				profit_usdt = loss_usdt = 0.0
-				for i in range(1, len(closes)):
-					prev_px = closes[i - 1]
-					px = closes[i]
-					# process TP sells
-					new_open: List[Dict[str, float]] = []
-					for lot in open_lots:
-						if px >= lot["tp"]:
-							notional = lot["qty"] * px
-							fee = notional * (fee_bps / 10000.0)
-							proceeds = notional - fee
-							realized = proceeds - lot["cost"]
-							usdt += proceeds
-							exits += 1
-							if realized > 0:
-								wins += 1
-								profit_usdt += realized
-							else:
-								losers += 1
-								loss_usdt += (-realized)
-						else:
-							new_open.append(lot)
-					open_lots = new_open
-					# detect downward crosses of grid lines and buy
-					if usdt > amount_usdt and lb <= px <= ub:
-						for line in grid_lines:
-							if px <= line < prev_px:
-								amount = min(amount_usdt, usdt)
-								if amount <= 0:
-									break
-								qty = amount / max(px, 1e-9)
-								fee_in = amount * (fee_bps / 10000.0)
-								cost = amount + fee_in
-								usdt -= cost
-								open_lots.append({"qty": qty, "entry": px, "cost": cost, "tp": px * (1.0 + tp_pct)})
-								entries += 1
-								# continue checking lower lines too in same bar
-				# finalize: liquidate remaining at last price
-				final_px = closes[-1]
-				for lot in open_lots:
-					notional = lot["qty"] * final_px
-					fee = notional * (fee_bps / 10000.0)
-					proceeds = notional - fee
-					realized = proceeds - lot["cost"]
-					usdt += proceeds
-					exits += 1
-					if realized > 0:
-						wins += 1
-						profit_usdt += realized
-					else:
-						losers += 1
-						loss_usdt += (-realized)
-				win_rate = (wins / exits * 100.0) if exits else 0.0
-				await message.answer(
-					f"Backtest ({scope})\n"
-					f"Entries={entries} | Exits={exits} | Wins={wins} | Losers={losers} | WinRate={win_rate:.2f}%\n"
-					f"Profit={profit_usdt:.2f} | Loss={loss_usdt:.2f} | Final Equity={usdt:.2f}"
-				)
-				return
-			fast = ema(closes, 12)
-			slow = ema(closes, 26)
-			r = rsi(closes, 14)
-			a_list = atr_series(kl, 14)
-			if mode_plus or mode_breakout:
-				bb_mid = sma(closes, 20)
-				bb_std = rolling_std(closes, 20)
-				bb_up = [ (bb_mid[i] + 2.0 * bb_std[i]) if i < len(bb_mid) else c for i, c in enumerate(closes) ]
-				bb_dn = [ (bb_mid[i] - 2.0 * bb_std[i]) if i < len(bb_mid) else c for i, c in enumerate(closes) ]
-				# tighten step and cooldown in plus mode
-				cooldown_bars = 1
-				ema200 = ema(closes, 200)
-				# Donchian for breakout
-				dc_high = rolling_max(closes, 20)
-				dc_low = rolling_min(closes, 20)
-			start = 30 if len(closes) > 30 else 1
+					return None
+			arg_start = 3 if len(parts) > 1 and parts[1].lower() == "grid" else 0
+			lb = _get(arg_start, float) or (last_px * 0.95)
+			ub = _get(arg_start + 1, float) or (last_px * 1.05)
+			grids_n = int(_get(arg_start + 2, int) or 20)
+			tp_pct = (_get(arg_start + 3, float) or 1.0) / 100.0
+			amount_usdt = float(_get(arg_start + 4, float) or base_amount_usdt)
+			if ub <= lb:
+				lb, ub = min(lb, ub), max(lb, ub)
+			step = (ub - lb) / max(grids_n, 1)
+			grid_lines = [lb + i * step for i in range(grids_n + 1)]
 			usdt = 10000.0
 			fee_bps = 10.0
-			base_usdt = 50.0
 			open_lots: List[Dict[str, float]] = []
-			wins = 0
-			closed = 0
-			trades = 0
-			profit_usdt = 0.0
-			loss_usdt = 0.0
-			entries = 0
-			last_idx = -9999
-			cooldown_bars = 1
-			for i in range(start, len(closes)):
+			wins = losers = entries = exits = 0
+			profit_usdt = loss_usdt = 0.0
+			for i in range(1, len(closes)):
+				prev_px = closes[i - 1]
 				px = closes[i]
-				center_bt = slow[i] if i < len(slow) else px
-				atr_i = a_list[i] if i < len(a_list) else 0.0
-				stepv = max(min(atr_i if atr_i > 0 else center_bt * step_pct, center_bt * 0.003), center_bt * 0.0005)
-				# exits
+				# process TP sells
 				new_open: List[Dict[str, float]] = []
 				for lot in open_lots:
-					trail = lot.get("trail", 0.0)
-					if px > lot["entry"] + atr_i * 0.5:
-						trail = max(trail, px - atr_i * 0.5)
-						lot["trail"] = trail
-					hit_tp = px >= lot["tp"]
-					hit_sl = px <= lot["sl"]
-					hit_tr = trail > 0 and px <= trail
-					if hit_tp or hit_sl or hit_tr:
+					if px >= lot["tp"]:
 						notional = lot["qty"] * px
 						fee = notional * (fee_bps / 10000.0)
 						proceeds = notional - fee
 						realized = proceeds - lot["cost"]
 						usdt += proceeds
-						closed += 1
-						trades += 1
+						exits += 1
 						if realized > 0:
 							wins += 1
 							profit_usdt += realized
 						else:
+							losers += 1
 							loss_usdt += (-realized)
 					else:
 						new_open.append(lot)
 				open_lots = new_open
-				# entries
-				r_i = r[i] if i < len(r) else 50.0
-				f_i = fast[i] if i < len(fast) else px
-				s_i = slow[i] if i < len(slow) else px
-				allow_entry = False
-				if mode_breakout:
-					# Momentum breakout: price breaks above Donchian high with trend and RSI confirm
-					trend_ok = (i < len(ema200) and f_i > s_i and (len(closes) < 200 or s_i > ema200[i])) if len(fast) else True
-					prev_c = closes[i - 1] if i > 0 else px
-					dc_now = dc_high[i] if i < len(dc_high) else px
-					dc_prev = dc_high[i - 1] if i > 0 and i - 1 < len(dc_high) else dc_now
-					std_i = bb_std[i] if i < len(bb_std) else 0.0
-					strong_break = (px >= dc_now + 0.05 * std_i)
-					cross_break = (prev_c <= dc_prev and px > dc_now)
-					dc_break = strong_break or cross_break
-					allow_entry = (i - last_idx >= cooldown_bars and dc_break and trend_ok and r_i >= 45)
-				elif not mode_plus:
-					allow_entry = (i - last_idx >= cooldown_bars and r_i <= 45 and f_i < s_i)
-				else:
-					# plus mode: deeper band touch + RSI<=45 + EMA12<EMA26 + slow above EMA200 (trend filter)
-					std_i = bb_std[i] if i < len(bb_std) else 0.0
-					band = bb_dn[i] if i < len(bb_dn) else px
-					bb_ok = (px <= (band - 0.1 * std_i))
-					trend_ok = (i < len(ema200) and s_i > ema200[i]) if len(closes) >= 200 else True
-					allow_entry = (i - last_idx >= cooldown_bars and bb_ok and r_i <= 45 and f_i < s_i and trend_ok)
-				if allow_entry:
-					for j in range(grid_per_side):
-						buy_lv = center_bt - stepv * (j + 1)
-						if px <= buy_lv and usdt > base_amount_usdt:
-							amount = base_amount_usdt
-							q = amount / max(px, 1e-9)
+				# detect downward crosses of grid lines and buy
+				if usdt > amount_usdt and lb <= px <= ub:
+					for line in grid_lines:
+						if px <= line < prev_px:
+							amount = min(amount_usdt, usdt)
+							if amount <= 0:
+								break
+							qty = amount / max(px, 1e-9)
 							fee_in = amount * (fee_bps / 10000.0)
 							cost = amount + fee_in
 							usdt -= cost
-							# per lot TP/SL (mode-specific)
-							if mode_breakout:
-								# momentum: aim higher TP, slightly wider SL
-								tp = px + atr_i * 1.2
-								sl = px - atr_i * 1.0
-							elif mode_plus:
-								tp = px + atr_i * 0.7
-								sl = px - atr_i * 0.8
-							else:
-								tp = px + atr_i * 0.5
-								sl = px - atr_i * 0.9
-							open_lots.append({"qty": q, "entry": px, "cost": cost, "tp": tp, "sl": sl, "trail": 0.0})
-							trades += 1
+							open_lots.append({"qty": qty, "entry": px, "cost": cost, "tp": px * (1.0 + tp_pct)})
 							entries += 1
-							last_idx = i
-							break
-			# finalize
+							# continue checking lower lines too in same bar
+			# finalize: liquidate remaining at last price
 			final_px = closes[-1]
 			for lot in open_lots:
 				notional = lot["qty"] * final_px
@@ -652,19 +512,20 @@ async def main() -> None:
 				proceeds = notional - fee
 				realized = proceeds - lot["cost"]
 				usdt += proceeds
-				closed += 1
+				exits += 1
 				if realized > 0:
 					wins += 1
 					profit_usdt += realized
 				else:
-					loss_usdt += (-(proceeds - lot["cost"]))
-			win_rate = (wins / closed * 100.0) if closed else 0.0
-			losers = closed - wins
+					losers += 1
+					loss_usdt += (-realized)
+			win_rate = (wins / exits * 100.0) if exits else 0.0
 			await message.answer(
 				f"Backtest ({scope})\n"
-				f"Entries={entries} | Exits={closed} | Wins={wins} | Losers={losers} | WinRate={win_rate:.2f}%\n"
+				f"Entries={entries} | Exits={exits} | Wins={wins} | Losers={losers} | WinRate={win_rate:.2f}%\n"
 				f"Profit={profit_usdt:.2f} | Loss={loss_usdt:.2f} | Final Equity={usdt:.2f}"
 			)
+			return
 		except Exception as e:
 			await message.answer(f"ERR backtest: {e}")
 
