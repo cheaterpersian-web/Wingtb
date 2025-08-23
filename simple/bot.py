@@ -421,7 +421,7 @@ async def main() -> None:
 			scope = parts[2].lower() if len(parts) > 2 else "day"
 		else:
 			scope = parts[1].lower() if len(parts) > 1 else "day"
-		period_map = {"hour": ("1min", 120), "day": ("5min", 288), "15d": ("30min", 720), "month": ("30min", 1440)}
+		period_map = {"hour": ("1min", 120), "day": ("5min", 288), "15d": ("30min", 720), "month": ("30min", 1440), "2m": ("1hour", 1440), "3m": ("1hour", 2160)}
 		if scope not in period_map:
 			scope = "day"
 		period, limit = period_map[scope]
@@ -430,10 +430,10 @@ async def main() -> None:
 			if not kl and scope == "month":
 				period, limit = "15min", 1440
 				kl = await cx.klines(market, period, limit)
-			if not kl and scope == "month":
-				period, limit = "1hour", 720
+			if not kl and scope in ("month", "2m", "3m"):
+				period, limit = "1hour", 1440 if scope == "2m" else (2160 if scope == "3m" else 720)
 				kl = await cx.klines(market, period, limit)
-			if not kl and scope == "month":
+			if not kl and scope in ("month", "2m", "3m"):
 				period, limit = "5min", 288
 				kl = await cx.klines(market, period, limit)
 			if not kl:
@@ -529,7 +529,7 @@ async def main() -> None:
 	async def optimize(message: Message):
 		parts = message.text.split()
 		scope = parts[1].lower() if len(parts) > 1 else "day"
-		period_map = {"hour": ("1min", 120), "day": ("5min", 288), "15d": ("30min", 720), "month": ("30min", 1440)}
+		period_map = {"hour": ("1min", 120), "day": ("5min", 288), "15d": ("30min", 720), "month": ("30min", 1440), "2m": ("1hour", 1440), "3m": ("1hour", 2160)}
 		if scope not in period_map:
 			scope = "day"
 		period, limit = period_map[scope]
@@ -537,8 +537,8 @@ async def main() -> None:
 		if not kl and scope == "month":
 			period, limit = "15min", 1440
 			kl = await cx.klines(market, period, limit)
-		if not kl and scope == "month":
-			period, limit = "1hour", 720
+		if not kl and scope in ("month", "2m", "3m"):
+			period, limit = "1hour", 1440 if scope == "2m" else (2160 if scope == "3m" else 720)
 			kl = await cx.klines(market, period, limit)
 		if not kl:
 			await message.answer("ERR optimize: no klines returned")
