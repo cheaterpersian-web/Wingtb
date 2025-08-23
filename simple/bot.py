@@ -386,6 +386,8 @@ async def main() -> None:
 			wins = 0
 			closed = 0
 			trades = 0
+			profit_usdt = 0.0
+			loss_usdt = 0.0
 			last_idx = -9999
 			cooldown_bars = 2
 			for i in range(start, len(closes)):
@@ -413,6 +415,9 @@ async def main() -> None:
 						trades += 1
 						if realized > 0:
 							wins += 1
+							profit_usdt += realized
+						else:
+							loss_usdt += realized
 					else:
 						new_open.append(lot)
 				open_lots = new_open
@@ -447,11 +452,13 @@ async def main() -> None:
 				closed += 1
 				if realized > 0:
 					wins += 1
+				else:
+					loss_usdt += proceeds - lot["cost"]
 			win_rate = (wins / closed * 100.0) if closed else 0.0
 			await message.answer(
 				f"Backtest ({scope})\n"
 				f"Trades={trades} | Closed={closed} | Wins={wins} | WinRate={win_rate:.2f}%\n"
-				f"Final Equity={usdt:.2f}"
+				f"Profit={profit_usdt:.2f} | Loss={loss_usdt:.2f} | Final Equity={usdt:.2f}"
 			)
 		except Exception as e:
 			await message.answer(f"ERR backtest: {e}")
