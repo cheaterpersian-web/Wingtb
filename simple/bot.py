@@ -416,7 +416,6 @@ async def main() -> None:
 						trades += 1
 						if realized > 0:
 							wins += 1
-							profit_usdt += realized
 						else:
 							loss_usdt += realized
 					else:
@@ -456,9 +455,10 @@ async def main() -> None:
 				else:
 					loss_usdt += proceeds - lot["cost"]
 			win_rate = (wins / closed * 100.0) if closed else 0.0
+			losers = closed - wins
 			await message.answer(
 				f"Backtest ({scope})\n"
-				f"Trades={trades} | Closed={closed} | Wins={wins} | WinRate={win_rate:.2f}%\n"
+				f"Trades={trades} | Closed={closed} | Wins={wins} | Losers={losers} | WinRate={win_rate:.2f}%\n"
 				f"Profit={profit_usdt:.2f} | Loss={loss_usdt:.2f} | Final Equity={usdt:.2f}"
 			)
 		except Exception as e:
