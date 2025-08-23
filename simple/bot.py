@@ -257,6 +257,7 @@ async def main() -> None:
 	min_cooldown = 3.0
 	k_period = "5min"
 	ind = {"ema_fast": 0.0, "ema_slow": 0.0, "rsi": 50.0, "atr": 0.0}
+	base_amount_usdt: float = float(os.getenv("BASE_ORDER_USDT", "50"))
 
 	@dp.message(Command("start"))
 	async def start(message: Message):
@@ -264,7 +265,7 @@ async def main() -> None:
 
 	@dp.message(Command("status"))
 	async def status(message: Message):
-		await message.answer(paper.status())
+		await message.answer(paper.status() + f" | BASE={base_amount_usdt:.2f} USDT")
 
 	@dp.message(Command("price"))
 	async def cmd_price(message: Message):
@@ -428,8 +429,8 @@ async def main() -> None:
 				if i - last_idx >= cooldown_bars and r_i <= 35 and f_i < s_i:
 					for j in range(grid_per_side):
 						buy_lv = center_bt - stepv * (j + 1)
-						if px <= buy_lv and usdt > base_usdt:
-							amount = base_usdt
+						if px <= buy_lv and usdt > base_amount_usdt:
+							amount = base_amount_usdt
 							q = amount / max(px, 1e-9)
 							fee_in = amount * (fee_bps / 10000.0)
 							cost = amount + fee_in
@@ -540,8 +541,8 @@ async def main() -> None:
 								if i - last_idx >= cooldown_bars and r_i <= buy_rsi_thr and f_i < s_i:
 									for j in range(grids):
 										buy_lv = center_bt - stepv * (j + 1)
-										if px <= buy_lv and usdt > 50.0:
-											amount = 50.0
+										if px <= buy_lv and usdt > base_amount_usdt:
+											amount = base_amount_usdt
 											q = amount / max(px, 1e-9)
 											fee_in = amount * (fee_bps / 10000.0)
 											cost = amount + fee_in
@@ -588,9 +589,26 @@ async def main() -> None:
 		]
 		await message.answer("Top configs (" + scope + ")\n" + "\n".join(lines))
 
+	@dp.message(Command("set_amount"))
+	async def set_amount(message: Message):
+		parts = message.text.split()
+		if len(parts) < 2:
+			await message.answer("usage: /set_amount 100")
+			return
+		try:
+			val = float(parts[1])
+			if val <= 0:
+				raise ValueError("non-positive")
+		except Exception:
+			await message.answer("amount must be a positive number")
+			return
+		nonlocal base_amount_usdt
+		base_amount_usdt = float(val)
+		await message.answer(f"Base amount set to {base_amount_usdt:.2f} USDT")
+
 	@dp.message(Command("buy"))
 	async def buy(message: Message):
-		txt = await paper.buy(market, 50)
+		txt = await paper.buy(market, base_amount_usdt)
 		await message.answer(txt)
 
 	@dp.message(Command("sell"))
