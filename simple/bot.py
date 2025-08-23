@@ -389,6 +389,7 @@ async def main() -> None:
 			trades = 0
 			profit_usdt = 0.0
 			loss_usdt = 0.0
+			entries = 0
 			last_idx = -9999
 			cooldown_bars = 2
 			for i in range(start, len(closes)):
@@ -440,6 +441,7 @@ async def main() -> None:
 							sl = px - atr_i * 1.0
 							open_lots.append({"qty": q, "entry": px, "cost": cost, "tp": tp, "sl": sl, "trail": 0.0})
 							trades += 1
+							entries += 1
 							last_idx = i
 							break
 			# finalize
@@ -460,7 +462,7 @@ async def main() -> None:
 			losers = closed - wins
 			await message.answer(
 				f"Backtest ({scope})\n"
-				f"Trades={trades} | Wins={wins} | Losers={losers} | WinRate={win_rate:.2f}%\n"
+				f"Entries={entries} | Exits={closed} | Wins={wins} | Losers={losers} | WinRate={win_rate:.2f}%\n"
 				f"Profit={profit_usdt:.2f} | Loss={loss_usdt:.2f} | Final Equity={usdt:.2f}"
 			)
 		except Exception as e:
