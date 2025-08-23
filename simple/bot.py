@@ -416,8 +416,9 @@ async def main() -> None:
 						trades += 1
 						if realized > 0:
 							wins += 1
+							profit_usdt += realized
 						else:
-							loss_usdt += realized
+							loss_usdt += (-realized)
 					else:
 						new_open.append(lot)
 				open_lots = new_open
@@ -452,8 +453,9 @@ async def main() -> None:
 				closed += 1
 				if realized > 0:
 					wins += 1
+					profit_usdt += realized
 				else:
-					loss_usdt += proceeds - lot["cost"]
+					loss_usdt += (-(proceeds - lot["cost"]))
 			win_rate = (wins / closed * 100.0) if closed else 0.0
 			losers = closed - wins
 			await message.answer(
@@ -569,6 +571,8 @@ async def main() -> None:
 								closed += 1
 								if realized > 0:
 									wins += 1
+								else:
+									loss_usdt += (-(proceeds - lot["cost"]))
 							win_rate = (wins / closed * 100.0) if closed else 0.0
 							candidates.append({
 								"buy_rsi": buy_rsi_thr,
