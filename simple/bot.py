@@ -99,6 +99,32 @@ def rolling_std(values: List[float], period: int) -> List[float]:
 	return out
 
 
+def rolling_max(values: List[float], period: int) -> List[float]:
+	if period <= 0 or not values:
+		return []
+	out: List[float] = []
+	window: List[float] = []
+	for v in values:
+		window.append(v)
+		if len(window) > period:
+			window.pop(0)
+		out.append(max(window))
+	return out
+
+
+def rolling_min(values: List[float], period: int) -> List[float]:
+	if period <= 0 or not values:
+		return []
+	out: List[float] = []
+	window: List[float] = []
+	for v in values:
+		window.append(v)
+		if len(window) > period:
+			window.pop(0)
+		out.append(min(window))
+	return out
+
+
 def atr_series(klines: List[Dict[str, Any]], period: int = 14) -> List[float]:
 	if len(klines) < 2:
 		return [0.0] * len(klines)
@@ -389,9 +415,13 @@ async def main() -> None:
 	async def backtest(message: Message):
 		parts = message.text.split()
 		mode_plus = False
+		mode_breakout = False
 		scope = "day"
 		if len(parts) > 1 and parts[1].lower() == "plus":
 			mode_plus = True
+			scope = parts[2].lower() if len(parts) > 2 else "day"
+		elif len(parts) > 1 and parts[1].lower() == "breakout":
+			mode_breakout = True
 			scope = parts[2].lower() if len(parts) > 2 else "day"
 		else:
 			scope = parts[1].lower() if len(parts) > 1 else "day"
@@ -418,7 +448,7 @@ async def main() -> None:
 			slow = ema(closes, 26)
 			r = rsi(closes, 14)
 			a_list = atr_series(kl, 14)
-			if mode_plus:
+			if mode_plus or mode_breakout:
 				bb_mid = sma(closes, 20)
 				bb_std = rolling_std(closes, 20)
 				bb_up = [ (bb_mid[i] + 2.0 * bb_std[i]) if i < len(bb_mid) else c for i, c in enumerate(closes) ]
@@ -426,6 +456,9 @@ async def main() -> None:
 				# tighten step and cooldown in plus mode
 				cooldown_bars = 1
 				ema200 = ema(closes, 200)
+				# Donchian for breakout
+				dc_high = rolling_max(closes, 20)
+				dc_low = rolling_min(closes, 20)
 			start = 30 if len(closes) > 30 else 1
 			usdt = 10000.0
 			fee_bps = 10.0
@@ -475,7 +508,13 @@ async def main() -> None:
 				f_i = fast[i] if i < len(fast) else px
 				s_i = slow[i] if i < len(slow) else px
 				allow_entry = False
-				if not mode_plus:
+				if mode_breakout:
+					# Trend-following breakout: close breaking below Donchian low for short-side mean-rev BUY (since we trade spot long-only, enter on pullback to Donchian low in uptrend?)
+					# Simpler: enter when price breaks above Donchian high and EMA12>EMA26>EMA200 and RSI>=50 (momentum buy)
+					trend_ok = (i < len(ema200) and f_i > s_i and s_i > ema200[i]) if len(closes) >= 200 else (f_i > s_i)
+					dc_break = (i < len(dc_high) and px >= dc_high[i])
+					allow_entry = (i - last_idx >= cooldown_bars and dc_break and trend_ok and r_i >= 50)
+				elif not mode_plus:
 					allow_entry = (i - last_idx >= cooldown_bars and r_i <= 45 and f_i < s_i)
 				else:
 					# plus mode: deeper band touch + RSI<=45 + EMA12<EMA26 + slow above EMA200 (trend filter)
@@ -493,8 +532,12 @@ async def main() -> None:
 							fee_in = amount * (fee_bps / 10000.0)
 							cost = amount + fee_in
 							usdt -= cost
-							# per lot TP/SL (plus mode slightly wider on TP, tighter SL)
-							if mode_plus:
+							# per lot TP/SL (mode-specific)
+							if mode_breakout:
+								# momentum: aim higher TP, slightly wider SL
+								tp = px + atr_i * 1.2
+								sl = px - atr_i * 1.0
+							elif mode_plus:
 								tp = px + atr_i * 0.7
 								sl = px - atr_i * 0.8
 							else:
