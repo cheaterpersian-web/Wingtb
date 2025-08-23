@@ -425,6 +425,7 @@ async def main() -> None:
 				bb_dn = [ (bb_mid[i] - 2.0 * bb_std[i]) if i < len(bb_mid) else c for i, c in enumerate(closes) ]
 				# tighten step and cooldown in plus mode
 				cooldown_bars = 1
+				ema200 = ema(closes, 200)
 			start = 30 if len(closes) > 30 else 1
 			usdt = 10000.0
 			fee_bps = 10.0
@@ -477,9 +478,12 @@ async def main() -> None:
 				if not mode_plus:
 					allow_entry = (i - last_idx >= cooldown_bars and r_i <= 45 and f_i < s_i)
 				else:
-					# plus mode: mean-reversion (touch lower band) + RSI<=50 + EMA12<EMA26
-					bb_ok = (i < len(bb_dn) and px <= bb_dn[i])
-					allow_entry = (i - last_idx >= cooldown_bars and bb_ok and r_i <= 50 and f_i < s_i)
+					# plus mode: deeper band touch + RSI<=45 + EMA12<EMA26 + slow above EMA200 (trend filter)
+					std_i = bb_std[i] if i < len(bb_std) else 0.0
+					band = bb_dn[i] if i < len(bb_dn) else px
+					bb_ok = (px <= (band - 0.1 * std_i))
+					trend_ok = (i < len(ema200) and s_i > ema200[i]) if len(closes) >= 200 else True
+					allow_entry = (i - last_idx >= cooldown_bars and bb_ok and r_i <= 45 and f_i < s_i and trend_ok)
 				if allow_entry:
 					for j in range(grid_per_side):
 						buy_lv = center_bt - stepv * (j + 1)
@@ -537,8 +541,8 @@ async def main() -> None:
 		if not kl and scope == "month":
 			period, limit = "15min", 1440
 			kl = await cx.klines(market, period, limit)
-		if not kl and scope == "15d":
-			period, limit = "5min", 576
+		if not kl and scope == "month":
+			period, limit = "1hour", 720
 			kl = await cx.klines(market, period, limit)
 		if not kl:
 			await message.answer("ERR optimize: no klines returned")
