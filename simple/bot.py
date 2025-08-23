@@ -460,7 +460,7 @@ async def main() -> None:
 			losers = closed - wins
 			await message.answer(
 				f"Backtest ({scope})\n"
-				f"Trades={trades} | Closed={closed} | Wins={wins} | Losers={losers} | WinRate={win_rate:.2f}%\n"
+				f"Trades={trades} | Wins={wins} | Losers={losers} | WinRate={win_rate:.2f}%\n"
 				f"Profit={profit_usdt:.2f} | Loss={loss_usdt:.2f} | Final Equity={usdt:.2f}"
 			)
 		except Exception as e:
