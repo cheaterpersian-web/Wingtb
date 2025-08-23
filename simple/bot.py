@@ -341,20 +341,49 @@ async def main() -> None:
 		await q.message.edit_text(f"PX={p:.8f}")
 		await q.answer()
 
+	async def start_grid(grids_n: int, step_p: float, tp_p: float, sl_p: float, amt: float, chat_id: int):
+		if running["on"]:
+			await bot.send_message(chat_id, "Already ON")
+			return
+		# clamp params
+		grids_n = max(10, min(30, grids_n))
+		step_p = max(0.003, min(0.01, step_p))
+		tp_p = max(0.003, min(0.02, tp_p))
+		sl_p = max(0.005, min(0.03, sl_p))
+		center = await cx.price(market)
+		await paper.on_price(center)
+		step_abs = center * step_p
+		lb = center - step_abs * grids_n
+		ub = center + step_abs * grids_n
+		lines = [lb + i * step_abs for i in range(grids_n * 2 + 1)]
+		occupied = {f"{ln:.8f}": False for ln in lines}
+		live["grid"] = {"lb": lb, "ub": ub, "lines": lines, "tp_pct": tp_p, "sl_pct": sl_p, "amount": amt, "open_lots": [], "occupied": occupied, "prev_px": center}
+		running["on"] = True
+		asyncio.create_task(loop_prices(chat_id))
+		await bot.send_message(chat_id, f"Grid ON (15m) | center={center:.8f} grids={grids_n*2+1} step={step_p*100:.2f}% tp={tp_p*100:.2f}% sl={sl_p*100:.2f}% amount={amt:.2f}\nStreaming…")
+
 	@dp.callback_query(F.data == "grid:on")
 	async def cb_grid_on(q: CallbackQuery):
-		q.message.text = "/grid_on"
-		await grid_on(Message.model_construct(message_id=q.message.message_id, date=q.message.date, chat=q.message.chat))
+		await start_grid(20, 0.005, 0.01, 0.01, base_amount_usdt, q.message.chat.id)
 		await q.answer("Grid ON")
 
 	@dp.callback_query(F.data == "grid:off")
 	async def cb_grid_off(q: CallbackQuery):
-		await grid_off(Message.model_construct(message_id=q.message.message_id, date=q.message.date, chat=q.message.chat))
+		running["on"] = False
+		live["grid"] = None
+		await bot.send_message(q.message.chat.id, "Stopped.")
 		await q.answer("Grid OFF")
 
 	@dp.callback_query(F.data == "grid:levels")
 	async def cb_grid_levels(q: CallbackQuery):
-		await grid_levels(Message.model_construct(message_id=q.message.message_id, date=q.message.date, chat=q.message.chat))
+		g = live.get("grid")
+		if not g:
+			await bot.send_message(q.message.chat.id, "Grid is OFF. Use /grid_on")
+		else:
+			lines = g["lines"]
+			text = f"LB={g['lb']:.8f} UB={g['ub']:.8f} | lines={len(lines)} tp={g['tp_pct']*100:.2f}% sl={g['sl_pct']*100:.2f}%\n"
+			text += "Lines:\n" + "\n".join(f"{lv:.8f}" for lv in lines[:min(len(lines), 30)])
+			await bot.send_message(q.message.chat.id, text)
 		await q.answer()
 
 	@dp.callback_query(F.data.startswith("amt:"))
@@ -377,10 +406,7 @@ async def main() -> None:
 		st = float(parts[2])
 		tp = float(parts[3])
 		sl = float(parts[4])
-		# call grid_on with params
-		msg = Message.model_construct(message_id=q.message.message_id, date=q.message.date, chat=q.message.chat)
-		msg.text = f"/grid_on {gr} {st} {tp} {sl} {base_amount_usdt}"
-		await grid_on(msg)
+		await start_grid(gr, st, tp, sl, base_amount_usdt, q.message.chat.id)
 		await q.answer("Preset applied")
 
 	@dp.message(Command("status"))
