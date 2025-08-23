@@ -361,11 +361,17 @@ async def main() -> None:
 							qty = lot["qty"]
 							_ = await paper.sell(market, qty)
 							await bot.send_message(chat_id, f"🔻 SL SELL {market} qty={qty:.8f} @ {p:.8f}")
+							lk = lot.get("line_key")
+							if lk is not None:
+								g["occupied"][lk] = False
 							continue
 						if p >= lot["tp"]:
 							qty = lot["qty"]
 							_ = await paper.sell(market, qty)
 							await bot.send_message(chat_id, f"✅ TP SELL {market} qty={qty:.8f} @ {p:.8f}")
+							lk = lot.get("line_key")
+							if lk is not None:
+								g["occupied"][lk] = False
 							continue
 						new_open.append(lot)
 					g["open_lots"] = new_open
@@ -373,6 +379,9 @@ async def main() -> None:
 					if paper.usdt > amount and g["lb"] <= p <= g["ub"]:
 						for line in lines:
 							if p <= line < prev_px:
+								lk = f"{line:.8f}"
+								if g["occupied"].get(lk):
+									continue
 								buy_amount = min(amount, paper.usdt)
 								if buy_amount <= 0:
 									break
@@ -384,7 +393,9 @@ async def main() -> None:
 									"cost": buy_amount + (buy_amount * (paper.fee_bps / 10000.0)),
 									"tp": p * (1.0 + tp_pct),
 									"sl": p * (1.0 - sl_pct),
+									"line_key": lk,
 								})
+								g["occupied"][lk] = True
 								await bot.send_message(chat_id, f"🟢 BUY {market} amount={buy_amount:.2f} qty={qty:.8f} @ {p:.8f} | tp={p*(1+tp_pct):.8f} sl={p*(1-sl_pct):.8f}")
 								# continue checking deeper lines
 					g["prev_px"] = p
@@ -419,7 +430,8 @@ async def main() -> None:
 		lb = center - step_abs * grids_n
 		ub = center + step_abs * grids_n
 		lines = [lb + i * step_abs for i in range(grids_n * 2 + 1)]
-		live["grid"] = {"lb": lb, "ub": ub, "lines": lines, "tp_pct": tp_p, "sl_pct": sl_p, "amount": amt, "open_lots": [], "prev_px": center}
+		occupied = {f"{ln:.8f}": False for ln in lines}
+		live["grid"] = {"lb": lb, "ub": ub, "lines": lines, "tp_pct": tp_p, "sl_pct": sl_p, "amount": amt, "open_lots": [], "occupied": occupied, "prev_px": center}
 		running["on"] = True
 		asyncio.create_task(loop_prices(message.chat.id))
 		await message.answer(f"Grid ON (15m) | center={center:.8f} grids={grids_n*2+1} step={step_p*100:.2f}% tp={tp_p*100:.2f}% sl={sl_p*100:.2f}% amount={amt:.2f}\nStreaming…")
