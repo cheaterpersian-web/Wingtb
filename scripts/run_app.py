@@ -15,9 +15,12 @@ from app.bot.handlers import setup_handlers
 async def main() -> None:
 	load_dotenv()
 	logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
-	# enable verbose httpx and aiogram logs
-	logging.getLogger("httpx").setLevel(logging.INFO)
+	# enable very verbose http logs
+	logging.getLogger("httpx").setLevel(logging.DEBUG)
+	logging.getLogger("httpcore").setLevel(logging.DEBUG)
 	logging.getLogger("aiogram").setLevel(logging.INFO)
+	logging.getLogger("live_grid").setLevel(logging.INFO)
+	logging.getLogger("coinex_feed").setLevel(logging.INFO)
 	token = os.getenv("BOT_TOKEN")
 	if not token:
 		raise RuntimeError("BOT_TOKEN missing")

@@ -149,7 +149,7 @@ class GridService:
 				try:
 					px = await self.datafeed.now_price(self.cfg.pair)
 					if px and px > 0:
-						logger.debug("REST tick price=%.4f", px)
+						logger.info("REST tick price=%.4f", px)
 						await self.exec.on_price(px)
 						self._closes.append(px)
 						closes_list = list(self._closes)
@@ -167,7 +167,7 @@ class GridService:
 				except Exception:
 					logger.exception("REST refresher error")
 				pass
-				await asyncio.sleep(15)
+				await asyncio.sleep(2)
 
 		self._rest_refresh_task = asyncio.create_task(rest_refresher())
 
