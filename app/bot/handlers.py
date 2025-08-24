@@ -207,10 +207,39 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 
 	async def _notify(chat_id: int, text: str):
 		try:
+			cfg = await repo.get_settings()
+			admin_id_val = (cfg.get("admin_chat_id") or "").strip()
+			send_id = int(admin_id_val) if str(admin_id_val).isdigit() else chat_id
+		except Exception:
+			send_id = chat_id
+		try:
 			bot = dp.bot  # type: ignore[attr-defined]
-			await bot.send_message(chat_id, text)
+			await bot.send_message(send_id, text)
 		except Exception:
 			pass
+
+	async def _get_admin_id() -> int | None:
+		try:
+			cfg = await repo.get_settings()
+			val = (cfg.get("admin_chat_id") or "").strip()
+			return int(val) if str(val).isdigit() else None
+		except Exception:
+			return None
+
+	async def _reply(message: Message, text: str, reply_markup=None):
+		ok = True
+		try:
+			await message.answer(text, reply_markup=reply_markup)
+		except Exception:
+			ok = False
+		aid = await _get_admin_id()
+		if aid and aid != message.chat.id:
+			try:
+				prefix = "" if ok else f"[relay from chat {message.chat.id}]\n"
+				bot = dp.bot  # type: ignore[attr-defined]
+				await bot.send_message(aid, prefix + text)
+			except Exception:
+				pass
 
 	engine = LiveGridEngine(get_price=feed.now_price, paper=exec_gateway, notify=_notify)
 	if grid_service is not None:
@@ -245,7 +274,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			)
 		else:
 			intro += "❗️ API تنظیم نشده است. با دستورات زیر تنظیم کنید:\n/apia YOUR_ACCESS_ID\n/apis YOUR_SECRET_KEY\nیا از /set_api ACCESS SECRET استفاده کنید\n\n"
-		await message.answer(intro, reply_markup=kb)
+		await _reply(message, intro, reply_markup=kb)
 
 	@dp.message(Command("status"))
 	async def cmd_status(message: Message):
@@ -255,7 +284,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			f"EQUITY={b['EQUITY']:.2f}, PNL_REAL={b['PNL_REALIZED']:.2f}, PNL_UNREAL={b.get('PNL_UNREALIZED',0):.2f}, WIN_RATE={b['WIN_RATE']:.2f}%\n"
 			f"MAX_DD={b['MAX_DRAWDOWN']:.2f}"
 		)
-		await message.answer(text)
+		await _reply(message, text)
 
 	@dp.message(Command("history"))
 	async def cmd_history(message: Message):
@@ -959,29 +988,29 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 	async def cmd_set_api_key(message: Message):
 		parts = message.text.split(maxsplit=1)
 		if len(parts) < 2 or not parts[1].strip():
-			await message.answer("نحوه استفاده: /set_api_key YOUR_ACCESS_ID")
+			await _reply(message, "نحوه استفاده: /set_api_key YOUR_ACCESS_ID")
 			return
 		await repo.update_settings({"coinex_api_key": parts[1].strip()})
-		await message.answer("API Key ذخیره شد")
+		await _reply(message, "API Key ذخیره شد")
 
 	@dp.message(Command("set_api_secret"))
 	async def cmd_set_api_secret(message: Message):
 		parts = message.text.split(maxsplit=1)
 		if len(parts) < 2 or not parts[1].strip():
-			await message.answer("نحوه استفاده: /set_api_secret YOUR_SECRET_KEY")
+			await _reply(message, "نحوه استفاده: /set_api_secret YOUR_SECRET_KEY")
 			return
 		await repo.update_settings({"coinex_api_secret": parts[1].strip()})
-		await message.answer("API Secret ذخیره شد")
+		await _reply(message, "API Secret ذخیره شد")
 
 	@dp.message(Command("set_api"))
 	async def cmd_set_api(message: Message):
 		parts = message.text.split()
 		if len(parts) != 3:
-			await message.answer("نحوه استفاده: /set_api ACCESS_ID SECRET_KEY")
+			await _reply(message, "نحوه استفاده: /set_api ACCESS_ID SECRET_KEY")
 			return
 		_, access, secret = parts
 		await repo.update_settings({"coinex_api_key": access.strip(), "coinex_api_secret": secret.strip()})
-		await message.answer("API Key/Secret ذخیره شد")
+		await _reply(message, "API Key/Secret ذخیره شد")
 
 	@dp.message(Command("status_api"))
 	async def cmd_status_api(message: Message):
@@ -990,7 +1019,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 		sk = (cfg.get("coinex_api_secret") or "").strip()
 		def _mask(v: str) -> str:
 			return (v[:2] + "*" * max(0, len(v) - 4) + v[-2:]) if v else "-"
-		await message.answer(f"API وضعیت:\nKey: {_mask(ak)}\nSecret: {_mask(sk)}")
+		await _reply(message, f"API وضعیت:\nKey: {_mask(ak)}\nSecret: {_mask(sk)}")
 
 	# Helpers to read/write .env safely
 	def _env_file_path() -> Path:
@@ -1057,7 +1086,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 					await message.answer("نحوه استفاده: /apis YOUR_SECRET_KEY")
 					return
 				await repo.update_settings({"coinex_api_secret": parts[1].strip()})
-				await message.answer("API Secret ذخیره شد")
+				await _reply(message, "API Secret ذخیره شد")
 				return
 			if cmd_root == "/status_api":
 				cfg = await repo.get_settings()
@@ -1098,7 +1127,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			await message.answer("API Key ذخیره شد")
 		else:
 			await repo.update_settings({"coinex_api_secret": val})
-			await message.answer("API Secret ذخیره شد")
+			await _reply(message, "API Secret ذخیره شد")
 		pending_actions.pop(uid, None)
 		pending_actions.pop(message.chat.id, None)
 
@@ -1134,9 +1163,25 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			await message.answer("نحوه استفاده: /apis YOUR_SECRET_KEY")
 			return
 		await repo.update_settings({"coinex_api_secret": parts[1].strip()})
-		await message.answer("API Secret ذخیره شد")
+		await _reply(message, "API Secret ذخیره شد")
 
 	@dp.message(Command("ping"))
 	async def cmd_ping(message: Message):
 		await message.answer("pong")
+
+	@dp.message(Command("set_admin"))
+	async def cmd_set_admin(message: Message):
+		parts = message.text.split()
+		if len(parts) != 2 or not parts[1].isdigit():
+			await _reply(message, "نحوه استفاده: /set_admin 123456789 (chat id)")
+			return
+		aid = int(parts[1])
+		await repo.update_settings({"admin_chat_id": str(aid)})
+		await _reply(message, f"admin_chat_id تنظیم شد: {aid}")
+
+	@dp.message(Command("who_admin"))
+	async def cmd_who_admin(message: Message):
+		cfg = await repo.get_settings()
+		val = (cfg.get("admin_chat_id") or "").strip()
+		await _reply(message, f"admin_chat_id = {val or '-'}")
 
