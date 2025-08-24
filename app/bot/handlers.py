@@ -644,7 +644,11 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             await engine.stop()
         except Exception:
             pass
-        await query.message.answer("گرید متوقف شد")
+        # Try editing the original message; if not allowed, send a new message
+        try:
+            await query.message.edit_text("گرید متوقف شد ✅")
+        except Exception:
+            await query.message.answer("گرید متوقف شد ✅")
 
     @dp.callback_query(F.data == "grid_levels_btn")
     async def cb_grid_levels_btn(query: CallbackQuery):
@@ -666,7 +670,10 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			await engine.stop()
 		except Exception:
 			pass
-		await query.message.answer("گرید متوقف شد")
+		try:
+			await query.message.edit_text("گرید متوقف شد ✅")
+		except Exception:
+			await query.message.answer("گرید متوقف شد ✅")
 
 	@dp.callback_query(F.data == "grid:levels")
 	async def cb_grid_levels_alias(query: CallbackQuery):
