@@ -10,6 +10,8 @@ from app.core.storage.db import SQLiteRepo
 from app.execution.paper_exec import PaperExecutionGateway
 from app.services.grid_service import GridService
 from app.services.grid_service import ServiceConfig
+from app.datafeed.coinex_datafeed import CoinExDataFeed
+from app.services.backtest_runner import run_fixed_grid_backtest
 
 
 logger = logging.getLogger(__name__)
@@ -56,6 +58,55 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
     async def cmd_export(message: Message):
         path = await repo.export_trades_csv("/workspace/exports/trades.csv")
         await message.answer(f"Exported to {path}")
+
+    @dp.message(Command("backtest"))
+    async def cmd_backtest(message: Message):
+        args = message.text.split()
+        scope = args[1].lower() if len(args) > 1 else "day"
+        period_map = {"hour": ("1min", 120), "day": ("5min", 288), "15d": ("15min", 1440), "month": ("1hour", 720), "2m": ("4hour", 360), "3m": ("1day", 90)}
+        if scope not in period_map:
+            scope = "day"
+        tf, limit = period_map[scope]
+        feed = CoinExDataFeed()
+        try:
+            candles = await feed.get_klines(grid_service.cfg.pair if grid_service else "TRXUSDT", tf, limit)
+            closes: list[float] = []
+            for c in candles:
+                v = None
+                if isinstance(c, dict):
+                    v = c.get("close") or c.get("c") or c.get("last") or c.get("price")
+                elif isinstance(c, (list, tuple)) and len(c) >= 3:
+                    v = c[2]
+                if v is not None:
+                    try:
+                        closes.append(float(v))
+                    except Exception:
+                        pass
+            if not closes:
+                await message.answer("خطا بک‌تست: داده‌ای بازنگشت")
+                return
+            # parse optional params: /backtest <scope> [lower upper grids tp_pct amount]
+            def _get(idx: int, cast):
+                try:
+                    return cast(args[idx])
+                except Exception:
+                    return None
+            lb = _get(2, float) or (min(closes) * 0.99)
+            ub = _get(3, float) or (max(closes) * 1.01)
+            grids = int(_get(4, int) or 20)
+            tp_pct = (_get(5, float) or 1.0) / 100.0
+            amount = float(_get(6, float) or (grid_service.cfg.base_order_usdt if grid_service else 50.0))
+            res = run_fixed_grid_backtest(closes, lb, ub, grids, tp_pct, amount)
+            if res.get("error"):
+                await message.answer(f"خطا بک‌تست: {res['error']}")
+                return
+            await message.answer(
+                f"بک‌تست ({scope})\n"
+                f"ورودها={res['entries']} | خروج‌ها={res['exits']} | بردها={res['wins']} | باخت‌ها={res['losers']} | بستن اجباری={res['forced_exits']} | نرخ برد={res['win_rate']:.2f}%\n"
+                f"سود={res['profit_usdt']:.2f} | ضرر={res['loss_usdt']:.2f} | ارزش نهایی={res['final_equity']:.2f}"
+            )
+        except Exception as e:
+            await message.answer(f"خطا بک‌تست: {e}")
 
     def _format_strategy(cfg_override: ServiceConfig | None = None) -> str:
         if grid_service is None:
