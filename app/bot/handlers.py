@@ -259,17 +259,40 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 
 	@dp.message(Command("backtest"))
 	async def cmd_backtest(message: Message):
-		args = message.text.split()
-		scope = args[1].lower() if len(args) > 1 else "day"
+		parts = message.text.split()
+		mode_grid = False
+		scope = "day"
+		if len(parts) > 1 and parts[1].lower() == "grid":
+			mode_grid = True
+			scope = parts[2].lower() if len(parts) > 2 else "day"
+		else:
+			scope = parts[1].lower() if len(parts) > 1 else "day"
 		period_map = {"hour": ("1min", 120), "day": ("5min", 288), "15d": ("15min", 1440), "month": ("1hour", 720), "2m": ("4hour", 360), "3m": ("1day", 90)}
 		if scope not in period_map:
 			scope = "day"
 		tf, limit = period_map[scope]
 		feed = CoinExDataFeed()
 		try:
-			candles = await feed.get_klines(grid_service.cfg.pair if grid_service else "TRXUSDT", tf, limit)
+			candles = await feed.get_klines(market, tf, limit)
+			# fallbacks per scope like simple
+			if (not candles) and scope == "day":
+				candles = await feed.get_klines(market, "1min", 1440)
+			if (not candles) and scope == "15d":
+				candles = await feed.get_klines(market, "30min", 720)
+			if (not candles) and scope == "month":
+				candles = await feed.get_klines(market, "30min", 1440)
+			if (not candles) and scope == "month":
+				candles = await feed.get_klines(market, "2hour", 360)
+			if (not candles) and scope == "2m":
+				candles = await feed.get_klines(market, "2hour", 720)
+			if (not candles) and scope == "2m":
+				candles = await feed.get_klines(market, "1hour", 1440)
+			if (not candles) and scope == "3m":
+				candles = await feed.get_klines(market, "4hour", 540)
+			if (not candles) and scope == "3m":
+				candles = await feed.get_klines(market, "1hour", 2160)
 			closes: list[float] = []
-			for c in candles:
+			for c in candles or []:
 				v = None
 				if isinstance(c, dict):
 					v = c.get("close") or c.get("c") or c.get("last") or c.get("price")
@@ -283,17 +306,21 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			if not closes:
 				await message.answer("خطا بک‌تست: داده‌ای بازنگشت")
 				return
-			# parse optional params: /backtest <scope> [lower upper grids tp_pct amount]
+			# Only grid mode supported now (default to grid)
+			if not mode_grid:
+				mode_grid = True
+			# parse args like simple: /backtest grid <scope> [lower upper grids tp_pct amount]
 			def _get(idx: int, cast):
 				try:
-					return cast(args[idx])
+					return cast(parts[idx])
 				except Exception:
 					return None
-			lb = _get(2, float) or (min(closes) * 0.99)
-			ub = _get(3, float) or (max(closes) * 1.01)
-			grids = int(_get(4, int) or 20)
-			tp_pct = (_get(5, float) or 1.0) / 100.0
-			amount = float(_get(6, float) or (grid_service.cfg.base_order_usdt if grid_service else 50.0))
+			arg_start = 3 if len(parts) > 1 and parts[1].lower() == "grid" else 2
+			lb = _get(arg_start, float) or (min(closes) * 0.99)
+			ub = _get(arg_start + 1, float) or (max(closes) * 1.01)
+			grids = int(_get(arg_start + 2, int) or 20)
+			tp_pct = (_get(arg_start + 3, float) or 1.0) / 100.0
+			amount = float(_get(arg_start + 4, float) or base_amount_usdt)
 			res = run_fixed_grid_backtest(closes, lb, ub, grids, tp_pct, amount)
 			if res.get("error"):
 				await message.answer(f"خطا بک‌تست: {res['error']}")
