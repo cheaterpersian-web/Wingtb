@@ -1084,6 +1084,13 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 
 	@dp.callback_query(F.data == "grid:on")
 	async def cb_grid_on_alias(query: CallbackQuery):
+		# prevent double-start
+		try:
+			if engine.is_running():
+				await query.answer("گرید از قبل روشن است.", show_alert=True)
+				return
+		except Exception:
+			pass
 		await query.answer("⚙️ در حال روشن کردن…")
 		async def run():
 			try:

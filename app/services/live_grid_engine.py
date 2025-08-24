@@ -72,6 +72,9 @@ class LiveGridEngine:
 		}
 		self._running = True
 		self._task = asyncio.create_task(self._loop(chat_id))
+		# Immediate start notification
+		with contextlib.suppress(Exception):
+			await self._notify(chat_id, f"🚀 گرید شروع شد برای {self._market} | مرکز={center:.6f} | خطوط={len(lines)}")
 		self._log.info("grid started: market=%s center=%.6f lines=%d step_pct=%.4f tp_pct=%.4f sl_pct=%.4f amount=%.2f", self._market, center, len(lines), step_p, tp_p, sl_p, amount)
 		return {
 			"center": center,
