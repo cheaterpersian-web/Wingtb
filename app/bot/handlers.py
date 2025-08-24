@@ -91,9 +91,12 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 		g2, st2, tp2, sl2, amt2 = clamp_params(gr, st, tp, sl, base_amount_usdt)
 		editor[query.message.chat.id] = {"grids": g2, "step": st2, "tp": tp2, "sl": sl2, "amount": amt2}
 		p = editor[query.message.chat.id]
-		# persist preset
-		await repo.update_settings({"preset": p})
-		await query.message.answer(preset_text(p), reply_markup=preset_kb(p))
+		# persist preset (merge with existing)
+		cfg_cur = await repo.get_settings()
+		cur = cfg_cur.get("preset") or {}
+		cur.update(p)
+		await repo.update_settings({"preset": cur})
+		await query.message.answer(preset_text(cur), reply_markup=preset_kb(cur))
 		await query.answer()
 
 	@dp.callback_query(F.data.startswith("edit:"))
@@ -123,12 +126,18 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 							rat = (vol / ref) if ref > 0 else 0.0
 							p["step"] = 0.01 if rat > 0.008 else 0.005
 							editor[query.message.chat.id] = p
-							await repo.update_settings({"preset": p})
+							cfg_cur = await repo.get_settings()
+							cur = cfg_cur.get("preset") or {}
+							cur.update(p)
+							await repo.update_settings({"preset": cur})
 				except Exception:
 					pass
 				info = await engine.start(query.message.chat.id, int(p["grids"]), float(p["step"]), float(p["tp"]), float(p["sl"]), float(p["amount"]))
 				# persist when starting too (finalize preset)
-				await repo.update_settings({"preset": p})
+				cfg_cur2 = await repo.get_settings()
+				cur2 = cfg_cur2.get("preset") or {}
+				cur2.update(p)
+				await repo.update_settings({"preset": cur2})
 				editor.pop(query.message.chat.id, None)
 				await query.message.answer(
 					f"گرید روشن شد (۱۵ دقیقه) | مرکز={info['center']:.8f} | گریدها={info['grids_total']} | گام={info['step_pct']*100:.2f}% | حدسود={info['tp_pct']*100:.2f}% | حدضرر={info['sl_pct']*100:.2f}% | مبلغ={info['amount']:.2f}"
@@ -167,9 +176,12 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 				p["dyn_step"] = 0 if p.get("dyn_step", 0) else 1
 			p["grids"], p["step"], p["tp"], p["sl"], p["amount"] = clamp_params(int(p["grids"]), float(p["step"]), float(p["tp"]), float(p["sl"]), float(p["amount"]))
 			editor[query.message.chat.id] = p
-			# persist after each change
-			await repo.update_settings({"preset": p})
-			await query.message.edit_text(preset_text(p), reply_markup=preset_kb(p))
+			# persist after each change (merge)
+			cfg_cur = await repo.get_settings()
+			cur = cfg_cur.get("preset") or {}
+			cur.update(p)
+			await repo.update_settings({"preset": cur})
+			await query.message.edit_text(preset_text(cur), reply_markup=preset_kb(cur))
 			await query.answer("به‌روزرسانی شد")
 		except Exception:
 			await query.answer("خطا", show_alert=False)
@@ -354,6 +366,16 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			}
 			await repo.update_settings({"preset": default_preset})
 			cfg = await repo.get_settings()
+		# normalize preset to requested values
+		p = cfg.get("preset") or {}
+		desired = {"grids": 20, "step": 0.008, "tp": 0.02, "sl": 0.006, "amount": 50.0, "cap_usdt": 300.0, "max_open_lots": 9, "w_bottom": 3.0, "w_top": 0.4, "dyn_step": 0}
+		changed = False
+		for k, v in desired.items():
+			if p.get(k) != v:
+				p[k] = v
+				changed = True
+		if changed:
+			await repo.update_settings({"preset": p})
 
 	@dp.message(Command("status"))
 	async def cmd_status(message: Message):
