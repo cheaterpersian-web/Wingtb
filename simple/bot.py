@@ -389,8 +389,20 @@ async def main() -> None:
 		await bot.send_message(q.message.chat.id, "متوقف شد.")
 		await q.answer("گرید خاموش شد")
 
+	# Aliases for app-style buttons so they work here too
+	@dp.callback_query(F.data == "grid_off_btn")
+	async def cb_grid_off_btn_alias(q: CallbackQuery):
+		await engine.stop()
+		await bot.send_message(q.message.chat.id, "متوقف شد.")
+		await q.answer("گرید خاموش شد")
+
 	@dp.callback_query(F.data == "grid:levels")
 	async def cb_grid_levels(q: CallbackQuery):
+		await bot.send_message(q.message.chat.id, engine.levels_text())
+		await q.answer()
+
+	@dp.callback_query(F.data == "grid_levels_btn")
+	async def cb_grid_levels_btn_alias(q: CallbackQuery):
 		await bot.send_message(q.message.chat.id, engine.levels_text())
 		await q.answer()
 
