@@ -1075,7 +1075,9 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			await query.answer()
 			return
 		if action in ("set_key", "set_secret"):
-			pending_actions[query.from_user.id if query.from_user else query.message.chat.id] = f"env_{action}"
+			key = query.from_user.id if query.from_user else query.message.chat.id
+			pending_actions[key] = f"env_{action}"
+			pending_actions[query.message.chat.id] = f"env_{action}"
 			await query.message.answer("مقدار را ارسال کنید:")
 			await query.answer()
 			return
@@ -1085,4 +1087,22 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			await query.message.answer("کلیدهای .env حذف شد.")
 			await query.answer()
 			return
+
+	@dp.message(Command("env_set_access"))
+	async def cmd_env_set_access(message: Message):
+		parts = message.text.split(maxsplit=1)
+		if len(parts) < 2 or not parts[1].strip():
+			await message.answer("نحوه استفاده: /env_set_access YOUR_ACCESS_ID")
+			return
+		_env_write_var("COINEX_ACCESS_ID", parts[1].strip())
+		await message.answer("COINEX_ACCESS_ID در .env ذخیره شد")
+
+	@dp.message(Command("env_set_secret"))
+	async def cmd_env_set_secret(message: Message):
+		parts = message.text.split(maxsplit=1)
+		if len(parts) < 2 or not parts[1].strip():
+			await message.answer("نحوه استفاده: /env_set_secret YOUR_SECRET_KEY")
+			return
+		_env_write_var("COINEX_SECRET_KEY", parts[1].strip())
+		await message.answer("COINEX_SECRET_KEY در .env ذخیره شد")
 
