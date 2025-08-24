@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from typing import Any, Awaitable, Callable, Dict, Optional
+import logging
 
 
 class LiveGridEngine:
@@ -19,6 +20,7 @@ class LiveGridEngine:
 		self._running: bool = False
 		self._grid: Optional[Dict[str, Any]] = None
 		self._task: Optional[asyncio.Task] = None
+		self._log = logging.getLogger("live_grid")
 
 	def set_market(self, market: str) -> None:
 		self._market = market
@@ -64,6 +66,7 @@ class LiveGridEngine:
 		}
 		self._running = True
 		self._task = asyncio.create_task(self._loop(chat_id))
+		self._log.info("grid started: market=%s center=%.6f lines=%d step_pct=%.4f tp_pct=%.4f sl_pct=%.4f amount=%.2f", self._market, center, len(lines), step_p, tp_p, sl_p, amount)
 		return {
 			"center": center,
 			"grids_total": grids_n * 2 + 1,
@@ -81,6 +84,7 @@ class LiveGridEngine:
 				await self._task
 			self._task = None
 		self._grid = None
+		self._log.info("grid stopped: market=%s", self._market)
 
 	def levels_text(self, max_lines: int = 30) -> str:
 		g = self._grid
@@ -98,6 +102,7 @@ class LiveGridEngine:
 			while self._running:
 				p = await self._get_price(self._market)
 				await self._paper.on_price(p)
+				self._log.info("tick: market=%s price=%.8f", self._market, p)
 				g = self._grid
 				if g:
 					prev_px = g.get("prev_px", p)
@@ -112,6 +117,7 @@ class LiveGridEngine:
 							qty = lot["qty"]
 							_ = await self._paper.place_order(self._market, "SELL", qty, p)
 							await self._notify(chat_id, f"🔻 فروش با استاپ‌لاس {self._market} | مقدار={qty:.8f} | قیمت={p:.8f}")
+							self._log.info("sell SL: qty=%.8f price=%.8f", qty, p)
 							lk = lot.get("line_key")
 							if lk is not None:
 								g["occupied"][lk] = False
@@ -120,6 +126,7 @@ class LiveGridEngine:
 							qty = lot["qty"]
 							_ = await self._paper.place_order(self._market, "SELL", qty, p)
 							await self._notify(chat_id, f"✅ فروش با تارگت {self._market} | مقدار={qty:.8f} | قیمت={p:.8f}")
+							self._log.info("sell TP: qty=%.8f price=%.8f", qty, p)
 							lk = lot.get("line_key")
 							if lk is not None:
 								g["occupied"][lk] = False
@@ -148,9 +155,11 @@ class LiveGridEngine:
 								})
 								g["occupied"][lk] = True
 								await self._notify(chat_id, f"🟢 خرید {self._market} | مبلغ={buy_amount:.2f} | مقدار={qty:.8f} | قیمت={p:.8f} | حدسود={p*(1+tp_pct):.8f} | حدضرر={p*(1-sl_pct):.8f}")
+								self._log.info("buy: amount=%.2f qty=%.8f price=%.8f tp=%.8f sl=%.8f", buy_amount, qty, p, p*(1+tp_pct), p*(1-sl_pct))
 					g["prev_px"] = p
 				await asyncio.sleep(2)
 		except Exception:
-			pass
+			# swallow and stop loop
+			self._log.exception("grid loop error")
 		finally:
 			self._running = False

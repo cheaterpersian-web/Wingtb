@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import logging
 
 from aiogram import Bot, Dispatcher
 from dotenv import load_dotenv
@@ -13,6 +14,10 @@ from app.bot.handlers import setup_handlers
 
 async def main() -> None:
 	load_dotenv()
+	logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
+	# enable verbose httpx and aiogram logs
+	logging.getLogger("httpx").setLevel(logging.INFO)
+	logging.getLogger("aiogram").setLevel(logging.INFO)
 	token = os.getenv("BOT_TOKEN")
 	if not token:
 		raise RuntimeError("BOT_TOKEN missing")
