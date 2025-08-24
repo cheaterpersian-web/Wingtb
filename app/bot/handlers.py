@@ -1023,6 +1023,9 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 
 	@dp.message(F.text)
 	async def maybe_api_input(message: Message):
+		# Do not handle slash-commands here; let Command handlers respond
+		if (message.text or "").strip().startswith("/"):
+			return
 		uid = message.from_user.id if message.from_user else None
 		if uid is None:
 			return
