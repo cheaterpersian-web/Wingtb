@@ -48,6 +48,162 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			await query.message.answer(f"خطا: {e}")
 		await query.answer()
 
+	# Preset editor (like simple)
+	editor: dict[int, dict[str, float | int]] = {}
+
+	def clamp_params(gr: int, st: float, tp: float, sl: float, amt: float):
+		gr = max(10, min(30, gr))
+		st = max(0.003, min(0.01, st))
+		tp = max(0.003, min(0.02, tp))
+		sl = max(0.005, min(0.03, sl))
+		amt = max(1.0, amt)
+		return gr, st, tp, sl, amt
+
+	def preset_text(p: dict[str, float | int]) -> str:
+		return (
+			f"ویرایش پریست\n"
+			f"گریدها={p['grids']} | گام={float(p['step'])*100:.2f}% | حدسود={float(p['tp'])*100:.2f}% | حدضرر={float(p['sl'])*100:.2f}% | مبلغ={float(p['amount']):.2f} USDT"
+		)
+
+	def preset_kb(p: dict[str, float | int]) -> InlineKeyboardMarkup:
+		return InlineKeyboardMarkup(inline_keyboard=[
+			[InlineKeyboardButton(text="گرید -2", callback_data="edit:gr:-2"), InlineKeyboardButton(text="گرید +2", callback_data="edit:gr:+2")],
+			[InlineKeyboardButton(text="گام -0.1%", callback_data="edit:step:-0.001"), InlineKeyboardButton(text="گام +0.1%", callback_data="edit:step:+0.001")],
+			[InlineKeyboardButton(text="حدسود -0.2%", callback_data="edit:tp:-0.002"), InlineKeyboardButton(text="حدسود +0.2%", callback_data="edit:tp:+0.002")],
+			[InlineKeyboardButton(text="حدضرر -0.2%", callback_data="edit:sl:-0.002"), InlineKeyboardButton(text="حدضرر +0.2%", callback_data="edit:sl:+0.002")],
+			[InlineKeyboardButton(text="مبلغ -10", callback_data="edit:amt:-10"), InlineKeyboardButton(text="مبلغ +10", callback_data="edit:amt:+10")],
+			[InlineKeyboardButton(text="شروع ▶️", callback_data="edit:start"), InlineKeyboardButton(text="انصراف ❌", callback_data="edit:cancel")],
+		])
+
+	@dp.callback_query(F.data.startswith("preset:"))
+	async def cb_preset(query: CallbackQuery):
+		parts = query.data.split(":")
+		gr = int(parts[1]); st = float(parts[2]); tp = float(parts[3]); sl = float(parts[4])
+		g2, st2, tp2, sl2, amt2 = clamp_params(gr, st, tp, sl, base_amount_usdt)
+		editor[query.message.chat.id] = {"grids": g2, "step": st2, "tp": tp2, "sl": sl2, "amount": amt2}
+		p = editor[query.message.chat.id]
+		await query.message.answer(preset_text(p), reply_markup=preset_kb(p))
+		await query.answer()
+
+	@dp.callback_query(F.data.startswith("edit:"))
+	async def cb_edit(query: CallbackQuery):
+		p = editor.get(query.message.chat.id) or {"grids": 20, "step": 0.005, "tp": 0.01, "sl": 0.01, "amount": base_amount_usdt}
+		cmd = query.data
+		try:
+			if cmd == "edit:start":
+				info = await engine.start(query.message.chat.id, int(p["grids"]), float(p["step"]), float(p["tp"]), float(p["sl"]), float(p["amount"]))
+				editor.pop(query.message.chat.id, None)
+				await query.message.answer(
+					f"گرید روشن شد (۱۵ دقیقه) | مرکز={info['center']:.8f} | گریدها={info['grids_total']} | گام={info['step_pct']*100:.2f}% | حدسود={info['tp_pct']*100:.2f}% | حدضرر={info['sl_pct']*100:.2f}% | مبلغ={info['amount']:.2f}"
+				)
+				await query.answer("گرید شروع شد")
+				return
+			if cmd == "edit:cancel":
+				editor.pop(query.message.chat.id, None)
+				await query.message.answer("ویرایش پریست لغو شد.")
+				await query.answer()
+				return
+			kind, op = cmd.split(":")[1], cmd.split(":")[2]
+			if kind == "gr":
+				p["grids"] = int(p["grids"]) + (2 if op == "+2" else -2)
+			elif kind == "step":
+				p["step"] = float(p["step"]) + float(op)
+			elif kind == "tp":
+				p["tp"] = float(p["tp"]) + float(op)
+			elif kind == "sl":
+				p["sl"] = float(p["sl"]) + float(op)
+			elif kind == "amt":
+				p["amount"] = float(p["amount"]) + (10.0 if op == "+10" else -10.0)
+			p["grids"], p["step"], p["tp"], p["sl"], p["amount"] = clamp_params(int(p["grids"]), float(p["step"]), float(p["tp"]), float(p["sl"]), float(p["amount"]))
+			editor[query.message.chat.id] = p
+			await query.message.edit_text(preset_text(p), reply_markup=preset_kb(p))
+			await query.answer("به‌روزرسانی شد")
+		except Exception:
+			await query.answer("خطا", show_alert=False)
+
+	# Pair selector like simple
+	@dp.callback_query(F.data.startswith("pair:"))
+	async def cb_pair(query: CallbackQuery):
+		nonlocal market
+		try:
+			parts = query.data.split(":")
+			action = parts[1] if len(parts) > 1 else ""
+			PAIRS = ["TRXUSDT","BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","ADAUSDT","DOGEUSDT","BNBUSDT","TONUSDT","LINKUSDT","LTCUSDT","OPUSDT","ARBUSDT","TIAUSDT","AVAXUSDT","NEARUSDT"]
+			if action in ("open", "page"):
+				page = int(parts[2]) if len(parts) > 2 else 0
+				page_size = 6
+				total_pages = (len(PAIRS) + page_size - 1) // page_size
+				page = max(0, min(total_pages - 1, page))
+				start_i = page * page_size
+				page_pairs = PAIRS[start_i : start_i + page_size]
+				rows = [[InlineKeyboardButton(text=sym, callback_data=f"pair:set:{sym}")] for sym in page_pairs]
+				nav = []
+				if page > 0:
+					nav.append(InlineKeyboardButton(text="◀️ قبلی", callback_data=f"pair:page:{page-1}"))
+				if page < total_pages - 1:
+					nav.append(InlineKeyboardButton(text="بعدی ▶️", callback_data=f"pair:page:{page+1}"))
+				bottom = [
+					InlineKeyboardButton(text="ورود دستی 📝", callback_data="pair:manual"),
+					InlineKeyboardButton(text="انصراف ❌", callback_data="pair:cancel"),
+				]
+				inline = rows + ([nav] if nav else []) + [bottom]
+				kb = InlineKeyboardMarkup(inline_keyboard=inline)
+				await query.message.answer(f"نماد فعلی: {market}\nیک نماد را انتخاب کنید:", reply_markup=kb)
+				await query.answer()
+				return
+			if action == "manual":
+				await query.message.answer("برای تنظیم نماد دلخواه، دستور زیر را ارسال کنید:\n/set_pair TRXUSDT")
+				await query.answer()
+				return
+			if action == "cancel":
+				await query.message.answer("انتخاب نماد لغو شد.")
+				await query.answer()
+				return
+			if action == "set" and len(parts) > 2:
+				sym = parts[2].upper()
+				try:
+					px = await feed.now_price(sym)
+				except Exception:
+					await query.answer("نماد نامعتبر یا در دسترس نیست", show_alert=True)
+					return
+				# stop engine and update market
+				try:
+					await engine.stop()
+					await query.message.answer("گرید متوقف شد به‌خاطر تغییر نماد.")
+				except Exception:
+					pass
+				market = sym
+				try:
+					engine.set_market(sym)
+				except Exception:
+					pass
+				# optionally reconfigure service
+				if grid_service is not None:
+					cfg = grid_service.cfg
+					new_cfg = ServiceConfig(
+						pair=sym,
+						timeframe=cfg.timeframe,
+						fee_bps=cfg.fee_bps,
+						slippage_bps=cfg.slippage_bps,
+						base_order_usdt=cfg.base_order_usdt,
+						lower_price=cfg.lower_price,
+						upper_price=cfg.upper_price,
+						grid_count=cfg.grid_count,
+						step_type=cfg.step_type,
+						use_rsi_filter=cfg.use_rsi_filter,
+						use_ema_filter=cfg.use_ema_filter,
+					)
+					try:
+						await grid_service.reconfigure(new_cfg)
+					except Exception:
+						pass
+				await exec_gateway.on_price(float(px))
+				await query.message.answer(f"نماد به {market} تغییر کرد. قیمت فعلی={float(px):.8f}\nبرای شروع، «روشن کردن گرید ▶️» را بزنید.")
+				await query.answer("نماد تنظیم شد")
+				return
+		except Exception:
+			await query.answer("خطا", show_alert=False)
+
 	async def _notify(chat_id: int, text: str):
 		try:
 			bot = dp.bot  # type: ignore[attr-defined]
@@ -65,16 +221,14 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 	@dp.message(Command("start"))
 	async def cmd_start(message: Message):
 		kb = InlineKeyboardMarkup(inline_keyboard=[
-			[InlineKeyboardButton(text="مشاهده استراتژی", callback_data="show_strategy")],
-			[InlineKeyboardButton(text="تغییر استراتژی/منطق", callback_data="edit_strategy")],
-			[InlineKeyboardButton(text="معامله تستی", callback_data="test_trade"), InlineKeyboardButton(text="فروش تستی", callback_data="test_sell")],
-			[InlineKeyboardButton(text="وضعیت", callback_data="show_status"), InlineKeyboardButton(text="تاریخچه", callback_data="show_history")],
-			[InlineKeyboardButton(text="پاک کردن تاریخچه", callback_data="clear_history")],
-			[InlineKeyboardButton(text="روشن کردن گرید", callback_data="grid_on_btn")],
-			[InlineKeyboardButton(text="خاموش کردن گرید", callback_data="grid_off_btn"), InlineKeyboardButton(text="نمایش خطوط گرید", callback_data="grid_levels_btn")],
+			[InlineKeyboardButton(text="وضعیت 💼", callback_data="menu:status"), InlineKeyboardButton(text="قیمت ⚡", callback_data="menu:price")],
+			[InlineKeyboardButton(text="روشن کردن گرید ▶️", callback_data="grid:on"), InlineKeyboardButton(text="خاموش کردن گرید ⏹", callback_data="grid:off")],
+			[InlineKeyboardButton(text="سطوح گرید 📐", callback_data="grid:levels")],
+			[InlineKeyboardButton(text="انتخاب ارز 🎯", callback_data="pair:open:0")],
 			[InlineKeyboardButton(text="تنظیم API صرافی CoinEx", callback_data="api:open")],
+			[InlineKeyboardButton(text="پریست: 20 گرید، 0.5% گام، 1% حدسود/حدضرر", callback_data="preset:20:0.005:0.01:0.01")],
 		])
-		await message.answer("Grid bot online.", reply_markup=kb)
+		await message.answer("ربات گرید ترید (نسخه آزمایشی) آماده است.", reply_markup=kb)
 
 	@dp.message(Command("status"))
 	async def cmd_status(message: Message):
