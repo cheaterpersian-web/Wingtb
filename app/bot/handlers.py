@@ -269,10 +269,10 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 				"🔐 API از فایل .env تنظیم شده است.\n"
 				f"صرافی: CoinEx | کارمزد اسپات: {fee:.2f} bps\n"
 				f"موجودی={b['USDT']:.2f} USDT | مقدار={b['ASSET_QTY']:.8f} | قیمت={b['ASSET_PRICE']:.8f} | ارزش={b['EQUITY']:.2f}\n\n"
-				"(برای تغییر COINEX_ACCESS_ID و COINEX_SECRET_KEY را در .env تنظیم کنید)\n"
+				"(برای تغییر، به ربات @wingtbbot مراجعه کنید → بخش «ربات‌های من» یا مقادیر COINEX_ACCESS_ID و COINEX_SECRET_KEY را در .env تنظیم کنید)\n"
 			)
 		else:
-			intro += "❗️ API تنظیم نشده است. از دکمه «تنظیم API صرافی CoinEx 🔐» استفاده کنید یا مقادیر را در .env قرار دهید.\n\n"
+			intro += "❗️ API تنظیم نشده است. به ربات @wingtbbot مراجعه کنید → بخش «ربات‌های من» یا مقادیر را در .env قرار دهید.\n\n"
 		await _reply(message, intro, reply_markup=kb)
 
 	@dp.message(Command("status"))
@@ -1081,7 +1081,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			"تنظیم API از طریق .env\n"
 			f"وضعیت فعلی:\nCOINEX_ACCESS_ID: {_mask(ak)}\nCOINEX_SECRET_KEY: {_mask(sk)}\n\n"
 			"برای تنظیم سریع از این دستورات استفاده کنید:\n/apia YOUR_ACCESS_ID\n/apis YOUR_SECRET_KEY\n\n"
-			"یا فایل .env را ویرایش کنید و مقادیر را قرار دهید. سپس برنامه را ری‌استارت کنید."
+			"یا فایل .env را ویرایش کنید و مقادیر را قرار دهید. سپس برنامه را ری‌استارت کنید.\nهمچنین می‌توانید از ربات @wingtbbot در بخش «ربات‌های من» تنظیم کنید."
 		)
 		await query.message.answer(text)
 		await query.answer()
