@@ -96,7 +96,7 @@ class LiveGridEngine:
 	def levels_text(self, max_lines: int = 30) -> str:
 		g = self._grid
 		if not g:
-			return "گرید خاموش است. از پریست شروع کنید."
+			return "گرید خاموش است. از منوی اصلی دکمه ‘روشن کردن گرید ▶️’ را بزنید."
 		lines = g["lines"]
 		text = (
 			f"کف={g['lb']:.8f} | سقف={g['ub']:.8f} | تعداد خطوط={len(lines)} | حدسود={g['tp_pct']*100:.2f}% | حدضرر={g['sl_pct']*100:.2f}%\n"
