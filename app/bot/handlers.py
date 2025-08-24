@@ -264,6 +264,8 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 		intro = ""
 		env_access = os.getenv("COINEX_ACCESS_ID", "").strip()
 		env_secret = os.getenv("COINEX_SECRET_KEY", "").strip()
+		mode_now = getattr(exec_gateway, "get_mode", lambda: "paper")()
+		account_label = "اصلی" if mode_now == "real" else "آزمایشی"
 		if env_access and env_secret:
 			b = exec_gateway.balances()
 			fee = getattr(exec_gateway, "fee_bps", 0.0)
@@ -271,7 +273,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 				"🔐 تنظیم API: فعال (از فایل .env)\n"
 				"صرافی: CoinEx\n"
 				f"کارمزد اسپات: {fee:.2f} بیس‌پوینت\n"
-				"وضعیت حساب (آزمایشی):\n"
+				f"وضعیت حساب ({account_label}):\n"
 				f"  - USDT: {b['USDT']:.2f}\n"
 				f"  - دارایی: {b['ASSET_QTY']:.8f}\n"
 				f"  - قیمت: {b['ASSET_PRICE']:.8f}\n"
@@ -964,6 +966,14 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			if setter:
 				setter(new_mode)
 			label = "حالت: اصلی" if new_mode == "real" else "حالت: آزمایشی"
+			# update the inline keyboard mode button label in place if possible
+			kb = query.message.reply_markup
+			try:
+				if kb and kb.inline_keyboard and len(kb.inline_keyboard) > 2 and kb.inline_keyboard[2]:
+					kb.inline_keyboard[2][0].text = label + " 🔁"
+					await query.message.edit_reply_markup(kb)
+				except Exception:
+				pass
 			await query.message.answer(f"حالت اجرا تغییر کرد: {label}")
 			await query.answer()
 		except Exception as e:
