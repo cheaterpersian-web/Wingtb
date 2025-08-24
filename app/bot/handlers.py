@@ -225,23 +225,36 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			[InlineKeyboardButton(text="روشن کردن گرید ▶️", callback_data="grid:on"), InlineKeyboardButton(text="خاموش کردن گرید ⏹", callback_data="grid:off")],
 			[InlineKeyboardButton(text="سطوح گرید 📐", callback_data="grid:levels")],
 			[InlineKeyboardButton(text="انتخاب ارز 🎯", callback_data="pair:open:0")],
-			[InlineKeyboardButton(text="تنظیم API صرافی CoinEx", callback_data="api:open")],
 			[InlineKeyboardButton(text="پریست: 20 گرید، 0.5% گام، 1% حدسود/حدضرر", callback_data="preset:20:0.005:0.01:0.01")],
 		])
 		# Compose intro with training note and API status
 		intro = "قبل از هرکاری آموزش‌های کانال را ببینید\n@wingtb\n\n"
+		# Prefer .env for API
+		env_access = os.getenv("COINEX_ACCESS_ID", "").strip()
+		env_secret = os.getenv("COINEX_SECRET_KEY", "").strip()
 		cfg = await repo.get_settings()
-		has_api = bool((cfg.get("coinex_api_key") or "").strip() and (cfg.get("coinex_api_secret") or "").strip())
-		if has_api:
+		sql_access = (cfg.get("coinex_api_key") or "").strip()
+		sql_secret = (cfg.get("coinex_api_secret") or "").strip()
+		if env_access and env_secret:
+			b = exec_gateway.balances()
+			fee = getattr(exec_gateway, "fee_bps", 0.0)
+			intro += (
+				"🔐 API از فایل .env تنظیم شده است.\n"
+				f"صرافی: CoinEx | کارمزد اسپات: {fee:.2f} bps\n"
+				f"موجودی={b['USDT']:.2f} USDT | مقدار={b['ASSET_QTY']:.8f} | قیمت={b['ASSET_PRICE']:.8f} | ارزش={b['EQUITY']:.2f}\n\n"
+				"برای تغییر API فقط مقادیر COINEX_ACCESS_ID و COINEX_SECRET_KEY را در .env به‌روزرسانی کنید.\n"
+			)
+		elif sql_access and sql_secret:
 			b = exec_gateway.balances()
 			fee = getattr(exec_gateway, "fee_bps", 0.0)
 			intro += (
 				"🔐 API تنظیم شده است.\n"
 				f"صرافی: CoinEx | کارمزد اسپات: {fee:.2f} bps\n"
 				f"موجودی={b['USDT']:.2f} USDT | مقدار={b['ASSET_QTY']:.8f} | قیمت={b['ASSET_PRICE']:.8f} | ارزش={b['EQUITY']:.2f}\n\n"
+				"(توصیه: از این پس API را در .env نگه‌داری کنید)\n"
 			)
 		else:
-			intro += "❗️ API تنظیم نشده است. لطفاً از دکمه «تنظیم API صرافی CoinEx» استفاده کنید.\n\n"
+			intro += "❗️ API تنظیم نشده است. لطفاً فایل .env را ویرایش کنید و COINEX_ACCESS_ID و COINEX_SECRET_KEY را تنظیم کنید.\n\n"
 		await message.answer(intro, reply_markup=kb)
 
 	@dp.message(Command("status"))
