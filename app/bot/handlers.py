@@ -308,7 +308,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			[InlineKeyboardButton(text="سطوح گرید 📐", callback_data="grid:levels")],
 			[InlineKeyboardButton(text="انتخاب ارز 🎯", callback_data="pair:open:0")],
 			[InlineKeyboardButton(text="تنظیم API صرافی CoinEx 🔐", callback_data="env:open")],
-			[InlineKeyboardButton(text="پریست: 20 گرید، 0.5% گام، 1% حدسود/حدضرر", callback_data="preset:20:0.005:0.01:0.01")],
+			[InlineKeyboardButton(text="پریست: 20 گرید، 0.8% گام، 2% حدسود/0.6% حدضرر", callback_data="preset:20:0.008:0.02:0.006")],
 		])
 		mode_label = "حالت: اصلی" if getattr(exec_gateway, "get_mode", lambda: "paper")() == "real" else "حالت: آزمایشی"
 		kb.inline_keyboard.insert(2, [InlineKeyboardButton(text=mode_label + " 🔁", callback_data="mode:toggle")])
@@ -336,6 +336,24 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 		else:
 			intro += "❗️ API تنظیم نشده است. لطفاً از طریق ربات @wingtbbot در بخش «ربات‌های من» آن را تنظیم کنید.\n\n"
 		await _reply(message, intro, reply_markup=kb)
+
+		cfg = await repo.get_settings()
+		# ensure default preset exists
+		if not cfg.get("preset"):
+			default_preset = {
+				"grids": 20,
+				"step": 0.008,
+				"tp": 0.02,
+				"sl": 0.006,
+				"amount": 50.0,
+				"cap_usdt": 300.0,
+				"max_open_lots": 9,
+				"w_bottom": 3.0,
+				"w_top": 0.4,
+				"dyn_step": 0,
+			}
+			await repo.update_settings({"preset": default_preset})
+			cfg = await repo.get_settings()
 
 	@dp.message(Command("status"))
 	async def cmd_status(message: Message):
