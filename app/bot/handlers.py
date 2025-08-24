@@ -12,6 +12,7 @@ from app.services.grid_service import GridService
 from app.services.grid_service import ServiceConfig
 from app.datafeed.coinex_datafeed import CoinExDataFeed
 from app.services.backtest_runner import run_fixed_grid_backtest
+from app.services.live_grid_engine import LiveGridEngine
 
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,23 @@ logger = logging.getLogger(__name__)
 
 def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutionGateway, *, grid_service: GridService | None = None):
     pending_actions: dict[int, str] = {}
+
+    # Live fixed-range grid engine (modular)
+    feed = CoinExDataFeed()
+
+    async def _notify(chat_id: int, text: str):
+        try:
+            bot = dp.bot  # type: ignore[attr-defined]
+            await bot.send_message(chat_id, text)
+        except Exception:
+            pass
+
+    engine = LiveGridEngine(get_price=feed.now_price, paper=exec_gateway, notify=_notify)
+    if grid_service is not None:
+        try:
+            engine.set_market(grid_service.cfg.pair)
+        except Exception:
+            pass
 
     @dp.message(Command("start"))
     async def cmd_start(message: Message):
@@ -453,15 +471,23 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
     async def cmd_grid_on(message: Message):
         if grid_service is None:
             await message.answer("Service not available")
-            return
+            # ادامه با موتور لایو ساده
         try:
             await message.answer("در حال روشن کردن…")
             async def run():
                 try:
-                    auto_cfg = await _compute_auto_cfg_async()
-                    await grid_service.reconfigure(auto_cfg)
+                    # stop old service if running
+                    try:
+                        await grid_service.stop()  # type: ignore[union-attr]
+                    except Exception:
+                        pass
+                    # defaults: 6 per side (12 total), 0.5% step, TP/SL=1%
+                    info = await engine.start(message.chat.id, grids_n=6, step_p=0.005, tp_p=0.01, sl_p=0.01, amount=max(5.0, exec_gateway.usdt_balance * 0.001) if hasattr(exec_gateway, 'usdt_balance') else 50.0)
                     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="نمایش داشبورد", callback_data="show_dashboard")]])
-                    await message.answer("گرید روشن شد ✅ (حالت خودکار ۱۲ سطح)", reply_markup=kb)
+                    await message.answer(
+                        f"گرید روشن شد ✅ (حالت ثابت)\nمرکز={info['center']:.4f} | خطوط={info['grids_total']} | گام={info['step_pct']*100:.2f}% | TP/SL={info['tp_pct']*100:.2f}%/{info['sl_pct']*100:.2f}%",
+                        reply_markup=kb,
+                    )
                 except Exception as e:
                     await message.answer(f"❌ خطا در روشن‌کردن گرید: {e}")
             asyncio.create_task(run())
@@ -471,16 +497,21 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
     @dp.callback_query(F.data == "grid_on_btn")
     async def cb_grid_on(query: CallbackQuery):
         if grid_service is None:
-            await query.answer("Service not available", show_alert=True)
-            return
+            await query.answer("Service not available", show_alert=False)
         await query.answer("در حال روشن کردن…")
         await query.message.answer("در حال روشن کردن…")
         async def run():
             try:
-                auto_cfg = await _compute_auto_cfg_async()
-                await grid_service.reconfigure(auto_cfg)
+                try:
+                    await grid_service.stop()  # type: ignore[union-attr]
+                except Exception:
+                    pass
+                info = await engine.start(query.message.chat.id, grids_n=6, step_p=0.005, tp_p=0.01, sl_p=0.01, amount=max(5.0, exec_gateway.usdt_balance * 0.001) if hasattr(exec_gateway, 'usdt_balance') else 50.0)
                 kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="نمایش داشبورد", callback_data="show_dashboard")]])
-                await query.message.answer("گرید روشن شد ✅ (حالت خودکار ۱۲ سطح)", reply_markup=kb)
+                await query.message.answer(
+                    f"گرید روشن شد ✅ (حالت ثابت)\nمرکز={info['center']:.4f} | خطوط={info['grids_total']} | گام={info['step_pct']*100:.2f}% | TP/SL={info['tp_pct']*100:.2f}%/{info['sl_pct']*100:.2f}%",
+                    reply_markup=kb,
+                )
             except Exception as e:
                 await query.message.answer(f"❌ خطا در روشن‌کردن گرید: {e}")
         asyncio.create_task(run())
@@ -489,9 +520,22 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
     async def cmd_grid_off(message: Message):
         if grid_service is None:
             await message.answer("Service not available")
-            return
-        await grid_service.stop()
-        await message.answer("Grid stopped")
+        try:
+            await grid_service.stop()
+        except Exception:
+            pass
+        try:
+            await engine.stop()
+        except Exception:
+            pass
+        await message.answer("گرید متوقف شد")
+
+    @dp.message(Command("grid_levels"))
+    async def cmd_grid_levels(message: Message):
+        try:
+            await message.answer(engine.levels_text())
+        except Exception as e:
+            await message.answer(f"خطا: {e}")
 
     @dp.message(Command("reset_demo"))
     async def cmd_reset(message: Message):
@@ -522,6 +566,15 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             use_rsi_filter=cfg.use_rsi_filter,
             use_ema_filter=cfg.use_ema_filter,
         )
+        # stop engine, set market, then reconfigure service
+        try:
+            await engine.stop()
+        except Exception:
+            pass
+        try:
+            engine.set_market(pair)
+        except Exception:
+            pass
         await grid_service.reconfigure(new_cfg)
         await message.answer(f"Pair set to {pair}")
 
