@@ -275,11 +275,10 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 				f"  - قیمت: {b['ASSET_PRICE']:.8f}\n"
 				f"  - ارزش کل: {b['EQUITY']:.2f}\n\n"
 				"ویرایش API:\n"
-				"  - ربات @wingtbbot → «ربات‌های من»\n"
-				"  - یا ویرایش فایل .env (COINEX_ACCESS_ID / COINEX_SECRET_KEY)\n"
+				"  - از طریق ربات @wingtbbot، بخش «ربات‌های من»\n"
 			)
 		else:
-			intro += "❗️ API تنظیم نشده است. به ربات @wingtbbot مراجعه کنید → بخش «ربات‌های من» یا مقادیر را در .env قرار دهید.\n\n"
+			intro += "❗️ API تنظیم نشده است. لطفاً از طریق ربات @wingtbbot در بخش «ربات‌های من» آن را تنظیم کنید.\n\n"
 		await _reply(message, intro, reply_markup=kb)
 
 	@dp.message(Command("status"))
