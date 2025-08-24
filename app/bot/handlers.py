@@ -266,10 +266,17 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			b = exec_gateway.balances()
 			fee = getattr(exec_gateway, "fee_bps", 0.0)
 			intro += (
-				"🔐 API از فایل .env تنظیم شده است.\n"
-				f"صرافی: CoinEx | کارمزد اسپات: {fee:.2f} bps\n"
-				f"موجودی={b['USDT']:.2f} USDT | مقدار={b['ASSET_QTY']:.8f} | قیمت={b['ASSET_PRICE']:.8f} | ارزش={b['EQUITY']:.2f}\n\n"
-				"(برای تغییر، به ربات @wingtbbot مراجعه کنید → بخش «ربات‌های من» یا مقادیر COINEX_ACCESS_ID و COINEX_SECRET_KEY را در .env تنظیم کنید)\n"
+				"🔐 تنظیم API: فعال (از فایل .env)\n"
+				"صرافی: CoinEx\n"
+				f"کارمزد اسپات: {fee:.2f} بیس‌پوینت\n"
+				"وضعیت حساب (آزمایشی):\n"
+				f"  - USDT: {b['USDT']:.2f}\n"
+				f"  - دارایی: {b['ASSET_QTY']:.8f}\n"
+				f"  - قیمت: {b['ASSET_PRICE']:.8f}\n"
+				f"  - ارزش کل: {b['EQUITY']:.2f}\n\n"
+				"ویرایش API:\n"
+				"  - ربات @wingtbbot → «ربات‌های من»\n"
+				"  - یا ویرایش فایل .env (COINEX_ACCESS_ID / COINEX_SECRET_KEY)\n"
 			)
 		else:
 			intro += "❗️ API تنظیم نشده است. به ربات @wingtbbot مراجعه کنید → بخش «ربات‌های من» یا مقادیر را در .env قرار دهید.\n\n"
