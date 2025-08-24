@@ -26,6 +26,7 @@ def run_fixed_grid_backtest(
 	wins = losers = entries = exits = 0
 	forced_exits = 0
 	profit_usdt = loss_usdt = 0.0
+	gross_profit_usdt = gross_loss_usdt = 0.0
 	fees_total = 0.0
 	fees_buy = 0.0
 	fees_sell = 0.0
@@ -45,12 +46,16 @@ def run_fixed_grid_backtest(
 				realized = proceeds - lot["cost"]
 				usdt += proceeds
 				exits += 1
+				# gross without fees
+				realized_gross = (lot["qty"] * px) - (lot["qty"] * lot["entry"])
 				if realized > 0:
 					wins += 1
 					profit_usdt += realized
+					gross_profit_usdt += max(realized_gross, 0.0)
 				else:
 					losers += 1
 					loss_usdt += (-realized)
+					gross_loss_usdt += max(-realized_gross, 0.0)
 			else:
 				new_open.append(lot)
 		open_lots = new_open
@@ -83,13 +88,18 @@ def run_fixed_grid_backtest(
 		usdt += proceeds
 		exits += 1
 		forced_exits += 1
+		# gross without fees
+		realized_gross = (lot["qty"] * final_px) - (lot["qty"] * lot["entry"])
 		if realized > 0:
 			wins += 1
 			profit_usdt += realized
+			gross_profit_usdt += max(realized_gross, 0.0)
 		else:
 			losers += 1
 			loss_usdt += (-realized)
+			gross_loss_usdt += max(-realized_gross, 0.0)
 	win_rate = (wins / exits * 100.0) if exits else 0.0
+	net_profit_usdt = usdt - start_usdt
 	return {
 		"entries": entries,
 		"exits": exits,
@@ -98,10 +108,13 @@ def run_fixed_grid_backtest(
 		"forced_exits": forced_exits,
 		"profit_usdt": profit_usdt,
 		"loss_usdt": loss_usdt,
+		"gross_profit_usdt": gross_profit_usdt,
+		"gross_loss_usdt": gross_loss_usdt,
 		"fees_total": fees_total,
 		"fees_buy": fees_buy,
 		"fees_sell": fees_sell,
 		"engaged_usdt_max": engaged_usdt_max,
 		"final_equity": usdt,
 		"win_rate": win_rate,
+		"net_profit_usdt": net_profit_usdt,
 	}
