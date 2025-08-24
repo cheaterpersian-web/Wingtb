@@ -813,10 +813,39 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 						await grid_service.stop()  # type: ignore[union-attr]
 					except Exception:
 						pass
-					# defaults: 6 per side (12 total), 0.5% step, TP/SL=1%
-					info = await engine.start(message.chat.id, grids_n=6, step_p=0.005, tp_p=0.01, sl_p=0.01, amount=max(5.0, exec_gateway.usdt_balance * 0.001) if hasattr(exec_gateway, 'usdt_balance') else 50.0)
+					# load preset
+					cfg_all = await repo.get_settings()
+					preset = cfg_all.get("preset") or {}
+					grids = int(preset.get("grids", 20))
+					step_p = float(preset.get("step", 0.005))
+					tp_p = float(preset.get("tp", 0.01))
+					sl_p = float(preset.get("sl", 0.01))
+					amount = float(preset.get("amount", (max(5.0, getattr(exec_gateway, 'usdt_balance', 0.0) * 0.001) if hasattr(exec_gateway, 'usdt_balance') else 50.0)))
+					# dynamic step
+					try:
+						if int(preset.get("dyn_step", 0)) == 1:
+							feed_local = CoinExDataFeed()
+							cand = await feed_local.get_klines(market, "15min", 96)
+							cl = []
+							for c in cand or []:
+								v = None
+								if isinstance(c, dict):
+									v = c.get("close") or c.get("c") or c.get("last") or c.get("price")
+								elif isinstance(c, (list, tuple)) and len(c) >= 3:
+									v = c[2]
+								if v is not None:
+									cl.append(float(v))
+							if len(cl) >= 14:
+								chg = [abs(cl[i] - cl[i-1]) for i in range(1, len(cl))]
+								vol = sum(chg[-14:]) / max(14, len(chg))
+								ref = sum(cl[-14:]) / 14.0
+								rat = (vol / ref) if ref > 0 else 0.0
+								step_p = 0.01 if rat > 0.008 else 0.005
+					except Exception:
+						pass
+					info = await engine.start(message.chat.id, grids_n=grids, step_p=step_p, tp_p=tp_p, sl_p=sl_p, amount=amount)
 					await message.answer(
-						f"گرید روشن شد ✅ (حالت ثابت)\nمرکز={info['center']:.4f} | خطوط={info['grids_total']} | گام={info['step_pct']*100:.2f}% | TP/SL={info['tp_pct']*100:.2f}%/{info['sl_pct']*100:.2f}%"
+						f"گرید روشن شد ✅\nمرکز={info['center']:.4f} | خطوط={info['grids_total']} | گام={info['step_pct']*100:.2f}% | TP/SL={info['tp_pct']*100:.2f}%/{info['sl_pct']*100:.2f}%"
 					)
 				except Exception as e:
 					await message.answer(f"❌ خطا در روشن‌کردن گرید: {e}")
@@ -836,9 +865,37 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 					await grid_service.stop()  # type: ignore[union-attr]
 				except Exception:
 					pass
-				info = await engine.start(query.message.chat.id, grids_n=6, step_p=0.005, tp_p=0.01, sl_p=0.01, amount=max(5.0, exec_gateway.usdt_balance * 0.001) if hasattr(exec_gateway, 'usdt_balance') else 50.0)
+				cfg_all = await repo.get_settings()
+				preset = cfg_all.get("preset") or {}
+				grids = int(preset.get("grids", 20))
+				step_p = float(preset.get("step", 0.005))
+				tp_p = float(preset.get("tp", 0.01))
+				sl_p = float(preset.get("sl", 0.01))
+				amount = float(preset.get("amount", (max(5.0, getattr(exec_gateway, 'usdt_balance', 0.0) * 0.001) if hasattr(exec_gateway, 'usdt_balance') else 50.0)))
+				try:
+					if int(preset.get("dyn_step", 0)) == 1:
+						feed_local = CoinExDataFeed()
+						cand = await feed_local.get_klines(market, "15min", 96)
+						cl = []
+						for c in cand or []:
+							v = None
+							if isinstance(c, dict):
+								v = c.get("close") or c.get("c") or c.get("last") or c.get("price")
+							elif isinstance(c, (list, tuple)) and len(c) >= 3:
+								v = c[2]
+							if v is not None:
+								cl.append(float(v))
+						if len(cl) >= 14:
+							chg = [abs(cl[i] - cl[i-1]) for i in range(1, len(cl))]
+							vol = sum(chg[-14:]) / max(14, len(chg))
+							ref = sum(cl[-14:]) / 14.0
+							rat = (vol / ref) if ref > 0 else 0.0
+							step_p = 0.01 if rat > 0.008 else 0.005
+				except Exception:
+					pass
+				info = await engine.start(query.message.chat.id, grids_n=grids, step_p=step_p, tp_p=tp_p, sl_p=sl_p, amount=amount)
 				await query.message.answer(
-					f"گرید روشن شد ✅ (حالت ثابت)\nمرکز={info['center']:.4f} | خطوط={info['grids_total']} | گام={info['step_pct']*100:.2f}% | TP/SL={info['tp_pct']*100:.2f}%/{info['sl_pct']*100:.2f}%"
+					f"گرید روشن شد ✅\nمرکز={info['center']:.4f} | خطوط={info['grids_total']} | گام={info['step_pct']*100:.2f}% | TP/SL={info['tp_pct']*100:.2f}%/{info['sl_pct']*100:.2f}%"
 				)
 			except Exception as e:
 				await query.message.answer(f"❌ خطا در روشن‌کردن گرید: {e}")
