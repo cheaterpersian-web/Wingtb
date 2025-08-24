@@ -10,6 +10,8 @@ def run_fixed_grid_backtest(
 	grids: int = 20,
 	tp_pct: float = 0.01,
 	amount_usdt: float = 50.0,
+	fee_bps: float = 10.0,
+	start_usdt: float = 10000.0,
 ) -> Dict[str, Any]:
 	if not closes or len(closes) < 10:
 		return {"error": "داده کافی نیست"}
@@ -19,12 +21,14 @@ def run_fixed_grid_backtest(
 		lb, ub = min(lb, ub), max(lb, ub)
 	step = (ub - lb) / max(grids, 1)
 	grid_lines = [lb + i * step for i in range(grids + 1)]
-	usdt = 10000.0
-	fee_bps = 10.0
+	usdt = float(start_usdt)
 	open_lots: List[Dict[str, float]] = []
 	wins = losers = entries = exits = 0
 	forced_exits = 0
 	profit_usdt = loss_usdt = 0.0
+	fees_total = 0.0
+	fees_buy = 0.0
+	fees_sell = 0.0
 	cutoff_bars = max(5, int(0.02 * len(closes)))
 	for i in range(1, len(closes)):
 		prev_px = closes[i - 1]
@@ -34,6 +38,8 @@ def run_fixed_grid_backtest(
 			if px >= lot["tp"]:
 				notional = lot["qty"] * px
 				fee = notional * (fee_bps / 10000.0)
+				fees_total += fee
+				fees_sell += fee
 				proceeds = notional - fee
 				realized = proceeds - lot["cost"]
 				usdt += proceeds
@@ -55,6 +61,8 @@ def run_fixed_grid_backtest(
 						break
 					qty = amount / max(px, 1e-9)
 					fee_in = amount * (fee_bps / 10000.0)
+					fees_total += fee_in
+					fees_buy += fee_in
 					cost = amount + fee_in
 					usdt -= cost
 					open_lots.append({"qty": qty, "entry": px, "cost": cost, "tp": px * (1.0 + tp_pct)})
@@ -63,10 +71,19 @@ def run_fixed_grid_backtest(
 	for lot in open_lots:
 		notional = lot["qty"] * final_px
 		fee = notional * (fee_bps / 10000.0)
+		fees_total += fee
+		fees_sell += fee
 		proceeds = notional - fee
+		realized = proceeds - lot["cost"]
 		usdt += proceeds
 		exits += 1
 		forced_exits += 1
+		if realized > 0:
+			wins += 1
+			profit_usdt += realized
+		else:
+			losers += 1
+			loss_usdt += (-realized)
 	win_rate = (wins / exits * 100.0) if exits else 0.0
 	return {
 		"entries": entries,
@@ -76,6 +93,9 @@ def run_fixed_grid_backtest(
 		"forced_exits": forced_exits,
 		"profit_usdt": profit_usdt,
 		"loss_usdt": loss_usdt,
+		"fees_total": fees_total,
+		"fees_buy": fees_buy,
+		"fees_sell": fees_sell,
 		"final_equity": usdt,
 		"win_rate": win_rate,
 	}

@@ -376,14 +376,17 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			grids = int(_get(arg_start + 2, int) or 20)
 			tp_pct = (_get(arg_start + 3, float) or 1.0) / 100.0
 			amount = float(_get(arg_start + 4, float) or base_amount_usdt)
-			res = run_fixed_grid_backtest(closes, lb, ub, grids, tp_pct, amount)
+			# derive fee and start equity from current exec settings
+			fee_bps_cfg = getattr(exec_gateway, "fee_bps", 10.0)
+			start_eq = 10000.0
+			res = run_fixed_grid_backtest(closes, lb, ub, grids, tp_pct, amount, fee_bps=fee_bps_cfg, start_usdt=start_eq)
 			if res.get("error"):
 				await message.answer(f"خطا بک‌تست: {res['error']}")
 				return
 			await message.answer(
 				f"بک‌تست ({scope})\n"
 				f"ورودها={res['entries']} | خروج‌ها={res['exits']} | بردها={res['wins']} | باخت‌ها={res['losers']} | بستن اجباری={res['forced_exits']} | نرخ برد={res['win_rate']:.2f}%\n"
-				f"سود={res['profit_usdt']:.2f} | ضرر={res['loss_usdt']:.2f} | ارزش نهایی={res['final_equity']:.2f}"
+				f"سود={res['profit_usdt']:.2f} | ضرر={res['loss_usdt']:.2f} | کارمزدها={res['fees_total']:.2f} | ارزش نهایی={res['final_equity']:.2f}"
 			)
 		except Exception as e:
 			await message.answer(f"خطا بک‌تست: {e}")
