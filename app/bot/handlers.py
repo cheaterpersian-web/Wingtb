@@ -256,7 +256,12 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 				"(توصیه: از این پس API را در .env نگه‌داری کنید)\n"
 			)
 		else:
-			intro += "❗️ API تنظیم نشده است. لطفاً فایل .env را ویرایش کنید و COINEX_ACCESS_ID و COINEX_SECRET_KEY را تنظیم کنید.\n\n"
+			intro += (
+				"❗️ API تنظیم نشده است.\n"
+				"روش ۱) از دستورات استفاده کنید:\n"
+				"/apia YOUR_ACCESS_ID\n/apis YOUR_SECRET_KEY\n\n"
+				"روش ۲) فایل .env را ویرایش کنید و COINEX_ACCESS_ID / COINEX_SECRET_KEY را تنظیم کنید.\n\n"
+			)
 		await message.answer(intro, reply_markup=kb)
 
 	@dp.message(Command("status"))
@@ -1057,51 +1062,36 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 		pending_actions.pop(uid, None)
 		pending_actions.pop(message.chat.id, None)
 
-	@dp.callback_query(F.data.startswith("env:"))
+	@dp.callback_query(F.data == "env:open")
 	async def cb_env(query: CallbackQuery):
-		parts = query.data.split(":")
-		action = parts[1] if len(parts) > 1 else "open"
-		if action == "open":
-			envs = _env_read_all()
-			ak = envs.get("COINEX_ACCESS_ID", "")
-			sk = envs.get("COINEX_SECRET_KEY", "")
-			def _mask(v: str) -> str:
-				return (v[:2] + "*" * max(0, len(v) - 4) + v[-2:]) if v else "-"
-			kb = InlineKeyboardMarkup(inline_keyboard=[
-				[InlineKeyboardButton(text="ثبت API Key (.env)", callback_data="env:set_key"), InlineKeyboardButton(text="ثبت API Secret (.env)", callback_data="env:set_secret")],
-				[InlineKeyboardButton(text="حذف کلیدها (.env)", callback_data="env:clear")],
-			])
-			await query.message.answer(f"وضعیت .env:\nCOINEX_ACCESS_ID: {_mask(ak)}\nCOINEX_SECRET_KEY: {_mask(sk)}\n\nبرای ثبت، روی دکمه‌ها بزنید.", reply_markup=kb)
-			await query.answer()
-			return
-		if action in ("set_key", "set_secret"):
-			key = query.from_user.id if query.from_user else query.message.chat.id
-			pending_actions[key] = f"env_{action}"
-			pending_actions[query.message.chat.id] = f"env_{action}"
-			await query.message.answer("مقدار را ارسال کنید:")
-			await query.answer()
-			return
-		if action == "clear":
-			_env_write_var("COINEX_ACCESS_ID", "")
-			_env_write_var("COINEX_SECRET_KEY", "")
-			await query.message.answer("کلیدهای .env حذف شد.")
-			await query.answer()
-			return
+		envs = _env_read_all()
+		ak = envs.get("COINEX_ACCESS_ID", "")
+		sk = envs.get("COINEX_SECRET_KEY", "")
+		def _mask(v: str) -> str:
+			return (v[:2] + "*" * max(0, len(v) - 4) + v[-2:]) if v else "-"
+		text = (
+			"تنظیم API از طریق .env\n"
+			f"وضعیت فعلی:\nCOINEX_ACCESS_ID: {_mask(ak)}\nCOINEX_SECRET_KEY: {_mask(sk)}\n\n"
+			"برای تنظیم سریع از این دستورات استفاده کنید:\n/apia YOUR_ACCESS_ID\n/apis YOUR_SECRET_KEY\n\n"
+			"یا فایل .env را ویرایش کنید و مقادیر را قرار دهید. سپس برنامه را ری‌استارت کنید."
+		)
+		await query.message.answer(text)
+		await query.answer()
 
-	@dp.message(Command("env_set_access"))
-	async def cmd_env_set_access(message: Message):
+	@dp.message(Command("apia"))
+	async def cmd_apia(message: Message):
 		parts = message.text.split(maxsplit=1)
 		if len(parts) < 2 or not parts[1].strip():
-			await message.answer("نحوه استفاده: /env_set_access YOUR_ACCESS_ID")
+			await message.answer("نحوه استفاده: /apia YOUR_ACCESS_ID")
 			return
 		_env_write_var("COINEX_ACCESS_ID", parts[1].strip())
 		await message.answer("COINEX_ACCESS_ID در .env ذخیره شد")
 
-	@dp.message(Command("env_set_secret"))
-	async def cmd_env_set_secret(message: Message):
+	@dp.message(Command("apis"))
+	async def cmd_apis(message: Message):
 		parts = message.text.split(maxsplit=1)
 		if len(parts) < 2 or not parts[1].strip():
-			await message.answer("نحوه استفاده: /env_set_secret YOUR_SECRET_KEY")
+			await message.answer("نحوه استفاده: /apis YOUR_SECRET_KEY")
 			return
 		_env_write_var("COINEX_SECRET_KEY", parts[1].strip())
 		await message.answer("COINEX_SECRET_KEY در .env ذخیره شد")
