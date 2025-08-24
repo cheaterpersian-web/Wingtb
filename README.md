@@ -17,8 +17,13 @@ Modular Telegram bot that performs grid trading on CoinEx market data. V1 runs i
 ```bash
 pip install -e .
 ```
-3. Run:
-```bash
+3. Run (modular app bot):
+```
+python -m scripts.run_app
+```
+
+For the minimal/simple bot:
+```
 python -m scripts.run_bot
 ```
 
