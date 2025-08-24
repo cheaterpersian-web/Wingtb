@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from app.datafeed.coinex_rest import CoinExREST
 from simple.live_grid import LiveGridEngine
 from simple.backtest import run_grid_backtest
+from app.core.storage.db import SQLiteRepo
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -308,6 +309,8 @@ async def main() -> None:
 	bot = Bot(token)
 	dp = Dispatcher()
 	cx = CoinExClient()
+	repo = SQLiteRepo()
+	repo.connect()
 	paper = Paper(usdt=10000)
 	grid_per_side = 16
 	step_pct = 0.005
@@ -326,8 +329,8 @@ async def main() -> None:
 			[InlineKeyboardButton(text="وضعیت 💼", callback_data="menu:status"), InlineKeyboardButton(text="قیمت ⚡", callback_data="menu:price")],
 			[InlineKeyboardButton(text="روشن کردن گرید ▶️", callback_data="grid:on"), InlineKeyboardButton(text="خاموش کردن گرید ⏹", callback_data="grid:off")],
 			[InlineKeyboardButton(text="سطوح گرید 📐", callback_data="grid:levels")],
-			[InlineKeyboardButton(text="افزایش مبلغ +10", callback_data="amt:+10"), InlineKeyboardButton(text="کاهش مبلغ -10", callback_data="amt:-10")],
 			[InlineKeyboardButton(text="انتخاب ارز 🎯", callback_data="pair:open:0")],
+			[InlineKeyboardButton(text="تنظیم API صرافی CoinEx", callback_data="api:open")],
 			[InlineKeyboardButton(text="پریست: 20 گرید، 0.5% گام، 1% حدسود/حدضرر", callback_data="preset:20:0.005:0.01:0.01")],
 		])
 		await message.answer("ربات گرید ترید (نسخه آزمایشی) آماده است.", reply_markup=kb)
@@ -412,18 +415,7 @@ async def main() -> None:
 		await bot.send_message(q.message.chat.id, engine.levels_text())
 		await q.answer()
 
-	@dp.callback_query(F.data.startswith("amt:"))
-	async def cb_amount(q: CallbackQuery):
-		nonlocal base_amount_usdt
-		try:
-			if q.data == "amt:+10":
-				base_amount_usdt += 10
-			else:
-				base_amount_usdt = max(1.0, base_amount_usdt - 10)
-			await q.message.edit_text(paper.status() + f" | مبلغ پایه={base_amount_usdt:.2f} USDT")
-		except Exception:
-			pass
-		await q.answer("به‌روزرسانی شد")
+	# amount دسترسی فقط از طریق پریست باقی می‌ماند؛ دکمه‌های اصلی حذف شدند
 
 	@dp.callback_query(F.data.startswith("preset:"))
 	async def cb_preset(q: CallbackQuery):
@@ -540,6 +532,7 @@ async def main() -> None:
 			await message.answer(f"خطا: {e}")
 
 	editor: Dict[int, Dict[str, float | int]] = {}
+	pending: Dict[int, str] = {}
 
 	# removed local loop; handled by LiveGridEngine
 
@@ -800,6 +793,56 @@ async def main() -> None:
 		nonlocal base_amount_usdt
 		base_amount_usdt = float(val)
 		await message.answer(f"مبلغ پایه روی {base_amount_usdt:.2f} USDT تنظیم شد")
+
+	def _mask(v: str) -> str:
+		v = v or ""
+		if len(v) <= 4:
+			return "*" * len(v)
+		return v[:2] + "*" * max(0, len(v) - 4) + v[-2:]
+
+	@dp.callback_query(F.data.startswith("api:"))
+	async def cb_api(q: CallbackQuery):
+		parts = q.data.split(":")
+		action = parts[1] if len(parts) > 1 else "open"
+		if action == "open":
+			cfg = await repo.get_settings()
+			ak = _mask(cfg.get("coinex_api_key", ""))
+			sk = _mask(cfg.get("coinex_api_secret", ""))
+			kb = InlineKeyboardMarkup(inline_keyboard=[
+				[InlineKeyboardButton(text="ثبت API Key", callback_data="api:set_key"), InlineKeyboardButton(text="ثبت API Secret", callback_data="api:set_secret")],
+				[InlineKeyboardButton(text="حذف کلیدها", callback_data="api:clear")],
+			])
+			await q.message.answer(f"کلیدهای فعلی:\nAPI Key: {ak or '-'}\nAPI Secret: {sk or '-'}\n\nبرای ثبت، روی دکمه‌ها بزنید.", reply_markup=kb)
+			await q.answer()
+			return
+		if action in ("set_key", "set_secret"):
+			pending[q.message.chat.id] = action
+			prompt = "API Key را بفرستید (متن)" if action == "set_key" else "API Secret را بفرستید (متن)"
+			await q.message.answer(prompt)
+			await q.answer()
+			return
+		if action == "clear":
+			await repo.update_settings({"coinex_api_key": "", "coinex_api_secret": ""})
+			await q.message.answer("کلیدها حذف شد.")
+			await q.answer()
+			return
+
+	@dp.message(F.text)
+	async def maybe_api(message: Message):
+		act = pending.get(message.chat.id)
+		if act not in ("set_key", "set_secret"):
+			return
+		val = (message.text or "").strip()
+		if not val:
+			await message.answer("ورودی خالی است")
+			return
+		if act == "set_key":
+			await repo.update_settings({"coinex_api_key": val})
+			await message.answer("API Key ذخیره شد")
+		else:
+			await repo.update_settings({"coinex_api_secret": val})
+			await message.answer("API Secret ذخیره شد")
+		pending.pop(message.chat.id, None)
 
 	@dp.message(Command("buy"))
 	async def buy(message: Message):
