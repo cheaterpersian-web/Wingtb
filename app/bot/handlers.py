@@ -14,6 +14,7 @@ from app.services.grid_service import ServiceConfig
 from app.datafeed.coinex_datafeed import CoinExDataFeed
 from app.services.backtest_runner import run_fixed_grid_backtest
 from app.services.live_grid_engine import LiveGridEngine
+from pathlib import Path
 
 
 logger = logging.getLogger(__name__)
@@ -225,6 +226,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			[InlineKeyboardButton(text="روشن کردن گرید ▶️", callback_data="grid:on"), InlineKeyboardButton(text="خاموش کردن گرید ⏹", callback_data="grid:off")],
 			[InlineKeyboardButton(text="سطوح گرید 📐", callback_data="grid:levels")],
 			[InlineKeyboardButton(text="انتخاب ارز 🎯", callback_data="pair:open:0")],
+			[InlineKeyboardButton(text="تنظیم API (.env)", callback_data="env:open")],
 			[InlineKeyboardButton(text="پریست: 20 گرید، 0.5% گام، 1% حدسود/حدضرر", callback_data="preset:20:0.005:0.01:0.01")],
 		])
 		# Compose intro with training note and API status
@@ -983,6 +985,43 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 		await repo.update_settings({"coinex_api_secret": parts[1].strip()})
 		await message.answer("API Secret ذخیره شد")
 
+	# Helpers to read/write .env safely
+	def _env_file_path() -> Path:
+		p = os.getenv("ENV_FILE", ".env")
+		return Path(p)
+
+	def _env_read_all() -> dict[str, str]:
+		path = _env_file_path()
+		if not path.exists():
+			return {}
+		d: dict[str, str] = {}
+		for line in path.read_text(encoding="utf-8").splitlines():
+			if not line or line.strip().startswith("#") or "=" not in line:
+				continue
+			k, v = line.split("=", 1)
+			d[k.strip()] = v.strip()
+		return d
+
+	def _env_write_var(key: str, value: str) -> None:
+		path = _env_file_path()
+		lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+		new_lines: list[str] = []
+		found = False
+		for line in lines:
+			if line.strip().startswith("#") or "=" not in line:
+				new_lines.append(line)
+				continue
+			k, _ = line.split("=", 1)
+			if k.strip() == key:
+				new_lines.append(f"{key}={value}")
+				found = True
+			else:
+				new_lines.append(line)
+		if not found:
+			new_lines.append(f"{key}={value}")
+		path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+		os.environ[key] = value
+
 	@dp.message(F.text)
 	async def maybe_api_input(message: Message):
 		uid = message.from_user.id if message.from_user else None
@@ -990,6 +1029,20 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			return
 		action = pending_actions.get(uid) or pending_actions.get(message.chat.id)
 		if action not in ("set_key", "set_secret"):
+			# handle .env actions
+			if action in ("env_set_key", "env_set_secret"):
+				val = (message.text or "").strip()
+				if not val:
+					await message.answer("ورودی خالی است")
+					return
+				if action == "env_set_key":
+					_env_write_var("COINEX_ACCESS_ID", val)
+					await message.answer("COINEX_ACCESS_ID در .env ذخیره شد")
+				else:
+					_env_write_var("COINEX_SECRET_KEY", val)
+					await message.answer("COINEX_SECRET_KEY در .env ذخیره شد")
+				pending_actions.pop(uid, None)
+				pending_actions.pop(message.chat.id, None)
 			return
 		val = message.text.strip()
 		if not val:
