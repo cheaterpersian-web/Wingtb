@@ -47,6 +47,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             [InlineKeyboardButton(text="وضعیت", callback_data="show_status"), InlineKeyboardButton(text="تاریخچه", callback_data="show_history")],
             [InlineKeyboardButton(text="پاک کردن تاریخچه", callback_data="clear_history")],
             [InlineKeyboardButton(text="روشن کردن گرید", callback_data="grid_on_btn")],
+            [InlineKeyboardButton(text="خاموش کردن گرید", callback_data="grid_off_btn"), InlineKeyboardButton(text="نمایش خطوط گرید", callback_data="grid_levels_btn")],
         ])
         await message.answer("Grid bot online.", reply_markup=kb)
 
@@ -631,4 +632,25 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
         )
         await grid_service.reconfigure(new_cfg)
         await message.answer("Grid updated")
+
+    @dp.callback_query(F.data == "grid_off_btn")
+    async def cb_grid_off_btn(query: CallbackQuery):
+        await query.answer("در حال خاموش کردن…")
+        try:
+            await grid_service.stop()  # type: ignore[union-attr]
+        except Exception:
+            pass
+        try:
+            await engine.stop()
+        except Exception:
+            pass
+        await query.message.answer("گرید متوقف شد")
+
+    @dp.callback_query(F.data == "grid_levels_btn")
+    async def cb_grid_levels_btn(query: CallbackQuery):
+        try:
+            await query.message.answer(engine.levels_text())
+        except Exception as e:
+            await query.message.answer(f"خطا: {e}")
+        await query.answer()
 
