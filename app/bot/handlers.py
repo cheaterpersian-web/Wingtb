@@ -230,22 +230,10 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 		])
 		# Compose intro with training note and API status
 		intro = "قبل از هرکاری آموزش‌های کانال را ببینید\n@wingtb\n\n"
-		# Prefer .env for API
-		env_access = os.getenv("COINEX_ACCESS_ID", "").strip()
-		env_secret = os.getenv("COINEX_SECRET_KEY", "").strip()
 		cfg = await repo.get_settings()
 		sql_access = (cfg.get("coinex_api_key") or "").strip()
 		sql_secret = (cfg.get("coinex_api_secret") or "").strip()
-		if env_access and env_secret:
-			b = exec_gateway.balances()
-			fee = getattr(exec_gateway, "fee_bps", 0.0)
-			intro += (
-				"🔐 API از فایل .env تنظیم شده است.\n"
-				f"صرافی: CoinEx | کارمزد اسپات: {fee:.2f} bps\n"
-				f"موجودی={b['USDT']:.2f} USDT | مقدار={b['ASSET_QTY']:.8f} | قیمت={b['ASSET_PRICE']:.8f} | ارزش={b['EQUITY']:.2f}\n\n"
-				"برای تغییر API فقط مقادیر COINEX_ACCESS_ID و COINEX_SECRET_KEY را در .env به‌روزرسانی کنید.\n"
-			)
-		elif sql_access and sql_secret:
+		if sql_access and sql_secret:
 			b = exec_gateway.balances()
 			fee = getattr(exec_gateway, "fee_bps", 0.0)
 			intro += (
@@ -255,7 +243,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 				"(برای تغییر از /apia و /apis استفاده کنید)\n"
 			)
 		else:
-			intro += "❗️ API تنظیم نشده است. با دستورات زیر تنظیم کنید:\n/apia YOUR_ACCESS_ID\n/apis YOUR_SECRET_KEY\n\n"
+			intro += "❗️ API تنظیم نشده است. با دستورات زیر تنظیم کنید:\n/apia YOUR_ACCESS_ID\n/apis YOUR_SECRET_KEY\nیا از /set_api ACCESS SECRET استفاده کنید\n\n"
 		await message.answer(intro, reply_markup=kb)
 
 	@dp.message(Command("status"))
@@ -983,6 +971,25 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			return
 		await repo.update_settings({"coinex_api_secret": parts[1].strip()})
 		await message.answer("API Secret ذخیره شد")
+
+	@dp.message(Command("set_api"))
+	async def cmd_set_api(message: Message):
+		parts = message.text.split()
+		if len(parts) != 3:
+			await message.answer("نحوه استفاده: /set_api ACCESS_ID SECRET_KEY")
+			return
+		_, access, secret = parts
+		await repo.update_settings({"coinex_api_key": access.strip(), "coinex_api_secret": secret.strip()})
+		await message.answer("API Key/Secret ذخیره شد")
+
+	@dp.message(Command("status_api"))
+	async def cmd_status_api(message: Message):
+		cfg = await repo.get_settings()
+		ak = (cfg.get("coinex_api_key") or "").strip()
+		sk = (cfg.get("coinex_api_secret") or "").strip()
+		def _mask(v: str) -> str:
+			return (v[:2] + "*" * max(0, len(v) - 4) + v[-2:]) if v else "-"
+		await message.answer(f"API وضعیت:\nKey: {_mask(ak)}\nSecret: {_mask(sk)}")
 
 	# Helpers to read/write .env safely
 	def _env_file_path() -> Path:
