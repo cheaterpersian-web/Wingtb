@@ -259,8 +259,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			[InlineKeyboardButton(text="پریست: 20 گرید، 0.5% گام، 1% حدسود/حدضرر", callback_data="preset:20:0.005:0.01:0.01")],
 		])
 		# Compose intro with training note and API status
-		intro = "قبل از هرکاری آموزش‌های کانال را ببینید\n@wingtb\n\n"
-		env_access = os.getenv("COINEX_ACCESS_ID", "").strip()
+		intro = ""		env_access = os.getenv("COINEX_ACCESS_ID", "").strip()
 		env_secret = os.getenv("COINEX_SECRET_KEY", "").strip()
 		if env_access and env_secret:
 			b = exec_gateway.balances()
@@ -1078,31 +1077,22 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 		def _mask(v: str) -> str:
 			return (v[:2] + "*" * max(0, len(v) - 4) + v[-2:]) if v else "-"
 		text = (
-			"تنظیم API از طریق .env\n"
-			f"وضعیت فعلی:\nCOINEX_ACCESS_ID: {_mask(ak)}\nCOINEX_SECRET_KEY: {_mask(sk)}\n\n"
-			"برای تنظیم سریع از این دستورات استفاده کنید:\n/apia YOUR_ACCESS_ID\n/apis YOUR_SECRET_KEY\n\n"
-			"یا فایل .env را ویرایش کنید و مقادیر را قرار دهید. سپس برنامه را ری‌استارت کنید.\nهمچنین می‌توانید از ربات @wingtbbot در بخش «ربات‌های من» تنظیم کنید."
+			"تنظیم API صرافی CoinEx\n"
+			f"وضعیت فعلی (.env):\nCOINEX_ACCESS_ID: {_mask(ak)}\nCOINEX_SECRET_KEY: {_mask(sk)}\n\n"
+			"برای تغییر و تنظیم API تنها این راه را استفاده کنید:\nبه ربات @wingtbbot مراجعه کنید → بخش «ربات‌های من».\n"
 		)
 		await query.message.answer(text)
 		await query.answer()
 
 	@dp.message(Command("apia"))
 	async def cmd_apia(message: Message):
-		parts = message.text.split(maxsplit=1)
-		if len(parts) < 2 or not parts[1].strip():
-			await message.answer("نحوه استفاده: /apia YOUR_ACCESS_ID")
-			return
-		await repo.update_settings({"coinex_api_key": parts[1].strip()})
-		await message.answer("API Key ذخیره شد")
+		await _reply(message, "این دستور غیرفعال است. لطفاً COINEX_ACCESS_ID را در .env تنظیم کنید یا از دکمه تنظیم API استفاده کنید.")
+		return
 
 	@dp.message(Command("apis"))
 	async def cmd_apis(message: Message):
-		parts = message.text.split(maxsplit=1)
-		if len(parts) < 2 or not parts[1].strip():
-			await message.answer("نحوه استفاده: /apis YOUR_SECRET_KEY")
-			return
-		await repo.update_settings({"coinex_api_secret": parts[1].strip()})
-		await _reply(message, "API Secret ذخیره شد")
+		await _reply(message, "این دستور غیرفعال است. لطفاً COINEX_SECRET_KEY را در .env تنظیم کنید یا از دکمه تنظیم API استفاده کنید.")
+		return
 
 	@dp.message(Command("ping"))
 	async def cmd_ping(message: Message):
