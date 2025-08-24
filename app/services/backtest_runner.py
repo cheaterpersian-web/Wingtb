@@ -14,6 +14,8 @@ def run_fixed_grid_backtest(
 	start_usdt: float = 10000.0,
 	cap_usdt: float = 300.0,
 	max_open_lots: int = 4,
+	w_bottom: float = 1.5,
+	w_top: float = 0.75,
 ) -> Dict[str, Any]:
 	if not closes or len(closes) < 10:
 		return {"error": "داده کافی نیست"}
@@ -62,7 +64,7 @@ def run_fixed_grid_backtest(
 				new_open.append(lot)
 		open_lots = new_open
 		if usdt > 0 and lb <= px <= ub and i < len(closes) - cutoff_bars:
-			for line in grid_lines:
+			for idx, line in enumerate(grid_lines):
 				if px <= line < prev_px:
 					# enforce max open lots
 					if len(open_lots) >= int(max_open_lots):
@@ -71,7 +73,10 @@ def run_fixed_grid_backtest(
 					engaged_now = sum(l["cost"] for l in open_lots) if open_lots else 0.0
 					remain_cap = max(0.0, float(cap_usdt) - engaged_now)
 					max_by_cap = remain_cap / (1.0 + fee_bps / 10000.0)
-					amount = min(amount_usdt, usdt, max_by_cap)
+					# linear weight: heavier at bottom (idx=0 -> w_bottom), lighter at top (idx=max -> w_top)
+					den = max(1, len(grid_lines) - 1)
+					w = float(w_bottom) + (float(w_top) - float(w_bottom)) * (idx / den)
+					amount = min(amount_usdt * max(0.0, w), usdt, max_by_cap)
 					if amount <= 0:
 						break
 					qty = amount / max(px, 1e-9)

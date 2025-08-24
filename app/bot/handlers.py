@@ -65,7 +65,8 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 		return (
 			f"ویرایش پریست\n"
 			f"گریدها={p['grids']} | گام={float(p['step'])*100:.2f}% | حدسود={float(p['tp'])*100:.2f}% | حدضرر={float(p['sl'])*100:.2f}% | مبلغ={float(p['amount']):.2f} USDT\n"
-			f"سقف سرمایه={float(p.get('cap_usdt', 300.0)):.2f} | حداکثر پوزیشن={int(p.get('max_open_lots', 4))}"
+			f"سقف سرمایه={float(p.get('cap_usdt', 300.0)):.2f} | حداکثر پوزیشن={int(p.get('max_open_lots', 4))}\n"
+			f"وزن پایین={float(p.get('w_bottom', 1.5)):.2f} | وزن بالا={float(p.get('w_top', 0.75)):.2f}"
 		)
 
 	def preset_kb(p: dict[str, float | int]) -> InlineKeyboardMarkup:
@@ -77,6 +78,8 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			[InlineKeyboardButton(text="مبلغ -10", callback_data="edit:amt:-10"), InlineKeyboardButton(text="مبلغ +10", callback_data="edit:amt:+10")],
 			[InlineKeyboardButton(text="سقف سرمایه -50", callback_data="edit:cap:-50"), InlineKeyboardButton(text="سقف سرمایه +50", callback_data="edit:cap:+50")],
 			[InlineKeyboardButton(text="حداکثر پوزیشن -1", callback_data="edit:max:-1"), InlineKeyboardButton(text="حداکثر پوزیشن +1", callback_data="edit:max:+1")],
+			[InlineKeyboardButton(text="وزن پایین +0.1", callback_data="edit:wb:+0.1"), InlineKeyboardButton(text="وزن پایین -0.1", callback_data="edit:wb:-0.1")],
+			[InlineKeyboardButton(text="وزن بالا +0.1", callback_data="edit:wt:+0.1"), InlineKeyboardButton(text="وزن بالا -0.1", callback_data="edit:wt:-0.1")],
 			[InlineKeyboardButton(text="شروع ▶️", callback_data="edit:start"), InlineKeyboardButton(text="انصراف ❌", callback_data="edit:cancel")],
 		])
 
@@ -129,6 +132,12 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			elif kind == "max":
 				p["max_open_lots"] = int(p.get("max_open_lots", 4)) + (1 if op == "+1" else -1)
 				p["max_open_lots"] = max(1, p["max_open_lots"])  # at least 1
+			elif kind == "wb":
+				p["w_bottom"] = float(p.get("w_bottom", 1.5)) + float(op)
+				p["w_bottom"] = max(0.0, p["w_bottom"])  # non-negative
+			elif kind == "wt":
+				p["w_top"] = float(p.get("w_top", 0.75)) + float(op)
+				p["w_top"] = max(0.0, p["w_top"])  # non-negative
 			p["grids"], p["step"], p["tp"], p["sl"], p["amount"] = clamp_params(int(p["grids"]), float(p["step"]), float(p["tp"]), float(p["sl"]), float(p["amount"]))
 			editor[query.message.chat.id] = p
 			# persist after each change
@@ -397,6 +406,8 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			preset_amt = float(preset.get("amount", base_amount_usdt))
 			preset_cap = float(preset.get("cap_usdt", 300.0))
 			preset_maxlots = int(preset.get("max_open_lots", 4))
+			w_bottom = float(preset.get("w_bottom", 1.5))
+			w_top = float(preset.get("w_top", 0.75))
 			grids = int(_get(arg_start + 2, int) or preset_grids)
 			# tp: if user provided percent, divide by 100; else use preset fraction
 			tp_arg = _get(arg_start + 3, float)
@@ -406,7 +417,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			mk_bps, tk_bps = await priv.get_spot_fee_bps()
 			fee_bps_cfg = tk_bps or getattr(exec_gateway, "fee_bps", 10.0)
 			start_eq = 10000.0
-			res = run_fixed_grid_backtest(closes, lb, ub, grids, tp_pct, amount, fee_bps=fee_bps_cfg, start_usdt=start_eq, cap_usdt=preset_cap, max_open_lots=preset_maxlots)
+			res = run_fixed_grid_backtest(closes, lb, ub, grids, tp_pct, amount, fee_bps=fee_bps_cfg, start_usdt=start_eq, cap_usdt=preset_cap, max_open_lots=preset_maxlots, w_bottom=w_bottom, w_top=w_top)
 			if res.get("error"):
 				await message.answer(f"خطا بک‌تست: {res['error']}")
 				return
