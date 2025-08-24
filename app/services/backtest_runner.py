@@ -29,6 +29,7 @@ def run_fixed_grid_backtest(
 	fees_total = 0.0
 	fees_buy = 0.0
 	fees_sell = 0.0
+	engaged_usdt_max = 0.0
 	cutoff_bars = max(5, int(0.02 * len(closes)))
 	for i in range(1, len(closes)):
 		prev_px = closes[i - 1]
@@ -67,6 +68,10 @@ def run_fixed_grid_backtest(
 					usdt -= cost
 					open_lots.append({"qty": qty, "entry": px, "cost": cost, "tp": px * (1.0 + tp_pct)})
 					entries += 1
+		# update engaged peak after this bar's operations
+		engaged_now = sum(l["cost"] for l in open_lots) if open_lots else 0.0
+		if engaged_now > engaged_usdt_max:
+			engaged_usdt_max = engaged_now
 	final_px = closes[-1]
 	for lot in open_lots:
 		notional = lot["qty"] * final_px
@@ -96,6 +101,7 @@ def run_fixed_grid_backtest(
 		"fees_total": fees_total,
 		"fees_buy": fees_buy,
 		"fees_sell": fees_sell,
+		"engaged_usdt_max": engaged_usdt_max,
 		"final_equity": usdt,
 		"win_rate": win_rate,
 	}
