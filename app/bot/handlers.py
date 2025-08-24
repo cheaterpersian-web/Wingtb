@@ -889,7 +889,8 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 						pass
 					info = await engine.start(message.chat.id, grids_n=grids, step_p=step_p, tp_p=tp_p, sl_p=sl_p, amount=amount, cap_usdt=cap, max_open_lots=maxlots, w_bottom=wb, w_top=wt)
 					await message.answer(
-						f"گرید روشن شد ✅\nمرکز={info['center']:.4f} | خطوط={info['grids_total']} | گام={info['step_pct']*100:.2f}% | TP/SL={info['tp_pct']*100:.2f}%/{info['sl_pct']*100:.2f}%"
+						f"گرید روشن شد ✅\nمرکز={info['center']:.6f} | گرید در هر سمت={info.get('grids_per_side', (info['grids_total']-1)//2)} | خطوط کل={info['grids_total']}\n"
+						f"گام={info['step_pct']*100:.2f}% | حدسود={info['tp_pct']*100:.2f}% | حدضرر={info['sl_pct']*100:.2f}% | مبلغ={info['amount']:.2f}"
 					)
 				except Exception as e:
 					await message.answer(f"❌ خطا در روشن‌کردن گرید: {e}")
@@ -943,7 +944,8 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 					pass
 				info = await engine.start(query.message.chat.id, grids_n=grids, step_p=step_p, tp_p=tp_p, sl_p=sl_p, amount=amount, cap_usdt=cap, max_open_lots=maxlots, w_bottom=wb, w_top=wt)
 				await query.message.answer(
-					f"گرید روشن شد ✅\nمرکز={info['center']:.4f} | خطوط={info['grids_total']} | گام={info['step_pct']*100:.2f}% | TP/SL={info['tp_pct']*100:.2f}%/{info['sl_pct']*100:.2f}%"
+					f"گرید روشن شد ✅\nمرکز={info['center']:.6f} | گرید در هر سمت={info.get('grids_per_side', (info['grids_total']-1)//2)} | خطوط کل={info['grids_total']}\n"
+					f"گام={info['step_pct']*100:.2f}% | حدسود={info['tp_pct']*100:.2f}% | حدضرر={info['sl_pct']*100:.2f}% | مبلغ={info['amount']:.2f}"
 				)
 			except Exception as e:
 				await query.message.answer(f"❌ خطا در روشن‌کردن گرید: {e}")

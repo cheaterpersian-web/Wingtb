@@ -76,6 +76,7 @@ class LiveGridEngine:
 		return {
 			"center": center,
 			"grids_total": grids_n * 2 + 1,
+			"grids_per_side": grids_n,
 			"step_pct": step_p,
 			"tp_pct": tp_p,
 			"sl_pct": sl_p,
