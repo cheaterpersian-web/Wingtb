@@ -226,6 +226,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			[InlineKeyboardButton(text="روشن کردن گرید ▶️", callback_data="grid:on"), InlineKeyboardButton(text="خاموش کردن گرید ⏹", callback_data="grid:off")],
 			[InlineKeyboardButton(text="سطوح گرید 📐", callback_data="grid:levels")],
 			[InlineKeyboardButton(text="انتخاب ارز 🎯", callback_data="pair:open:0")],
+			[InlineKeyboardButton(text="تنظیم API صرافی CoinEx 🔐", callback_data="api:open")],
 			[InlineKeyboardButton(text="پریست: 20 گرید، 0.5% گام، 1% حدسود/حدضرر", callback_data="preset:20:0.005:0.01:0.01")],
 		])
 		# Compose intro with training note and API status
@@ -1134,4 +1135,8 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			return
 		await repo.update_settings({"coinex_api_secret": parts[1].strip()})
 		await message.answer("API Secret ذخیره شد")
+
+	@dp.message(Command("ping"))
+	async def cmd_ping(message: Message):
+		await message.answer("pong")
 
