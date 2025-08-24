@@ -821,6 +821,10 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 					tp_p = float(preset.get("tp", 0.01))
 					sl_p = float(preset.get("sl", 0.01))
 					amount = float(preset.get("amount", (max(5.0, getattr(exec_gateway, 'usdt_balance', 0.0) * 0.001) if hasattr(exec_gateway, 'usdt_balance') else 50.0)))
+					cap = float(preset.get("cap_usdt", 0.0)) or None
+					maxlots = int(preset.get("max_open_lots", 0)) or None
+					wb = float(preset.get("w_bottom", 1.0))
+					wt = float(preset.get("w_top", 1.0))
 					# dynamic step
 					try:
 						if int(preset.get("dyn_step", 0)) == 1:
@@ -843,7 +847,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 								step_p = 0.01 if rat > 0.008 else 0.005
 					except Exception:
 						pass
-					info = await engine.start(message.chat.id, grids_n=grids, step_p=step_p, tp_p=tp_p, sl_p=sl_p, amount=amount)
+					info = await engine.start(message.chat.id, grids_n=grids, step_p=step_p, tp_p=tp_p, sl_p=sl_p, amount=amount, cap_usdt=cap, max_open_lots=maxlots, w_bottom=wb, w_top=wt)
 					await message.answer(
 						f"گرید روشن شد ✅\nمرکز={info['center']:.4f} | خطوط={info['grids_total']} | گام={info['step_pct']*100:.2f}% | TP/SL={info['tp_pct']*100:.2f}%/{info['sl_pct']*100:.2f}%"
 					)
@@ -872,6 +876,10 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 				tp_p = float(preset.get("tp", 0.01))
 				sl_p = float(preset.get("sl", 0.01))
 				amount = float(preset.get("amount", (max(5.0, getattr(exec_gateway, 'usdt_balance', 0.0) * 0.001) if hasattr(exec_gateway, 'usdt_balance') else 50.0)))
+				cap = float(preset.get("cap_usdt", 0.0)) or None
+				maxlots = int(preset.get("max_open_lots", 0)) or None
+				wb = float(preset.get("w_bottom", 1.0))
+				wt = float(preset.get("w_top", 1.0))
 				try:
 					if int(preset.get("dyn_step", 0)) == 1:
 						feed_local = CoinExDataFeed()
@@ -893,7 +901,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 							step_p = 0.01 if rat > 0.008 else 0.005
 				except Exception:
 					pass
-				info = await engine.start(query.message.chat.id, grids_n=grids, step_p=step_p, tp_p=tp_p, sl_p=sl_p, amount=amount)
+				info = await engine.start(query.message.chat.id, grids_n=grids, step_p=step_p, tp_p=tp_p, sl_p=sl_p, amount=amount, cap_usdt=cap, max_open_lots=maxlots, w_bottom=wb, w_top=wt)
 				await query.message.answer(
 					f"گرید روشن شد ✅\nمرکز={info['center']:.4f} | خطوط={info['grids_total']} | گام={info['step_pct']*100:.2f}% | TP/SL={info['tp_pct']*100:.2f}%/{info['sl_pct']*100:.2f}%"
 				)

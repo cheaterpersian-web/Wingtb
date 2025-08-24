@@ -31,7 +31,7 @@ class LiveGridEngine:
 	def grid_state(self) -> Optional[Dict[str, Any]]:
 		return self._grid
 
-	async def start(self, chat_id: int, grids_n: int, step_p: float, tp_p: float, sl_p: float, amount: float) -> Dict[str, float]:
+	async def start(self, chat_id: int, grids_n: int, step_p: float, tp_p: float, sl_p: float, amount: float, *, cap_usdt: float | None = None, max_open_lots: int | None = None, w_bottom: float = 1.0, w_top: float = 1.0) -> Dict[str, float]:
 		if self._running:
 			return {
 				"center": float(self._grid.get("prev_px", 0.0)) if self._grid else 0.0,
@@ -46,6 +46,8 @@ class LiveGridEngine:
 		step_p = max(0.003, min(0.01, step_p))
 		tp_p = max(0.003, min(0.10, tp_p))
 		sl_p = max(0.005, min(0.03, sl_p))
+		w_bottom = max(0.0, float(w_bottom))
+		w_top = max(0.0, float(w_top))
 		center = await self._get_price(self._market)
 		await self._paper.on_price(center)
 		step_abs = center * step_p
@@ -63,6 +65,10 @@ class LiveGridEngine:
 			"open_lots": [],
 			"occupied": occupied,
 			"prev_px": center,
+			"cap_usdt": float(cap_usdt) if cap_usdt is not None else None,
+			"max_open_lots": int(max_open_lots) if max_open_lots is not None else None,
+			"w_bottom": w_bottom,
+			"w_top": w_top,
 		}
 		self._running = True
 		self._task = asyncio.create_task(self._loop(chat_id))
@@ -110,6 +116,10 @@ class LiveGridEngine:
 					amount = g["amount"]
 					tp_pct = g["tp_pct"]
 					sl_pct = g["sl_pct"]
+					cap = g.get("cap_usdt")
+					max_lots = g.get("max_open_lots")
+					w_bottom = float(g.get("w_bottom", 1.0))
+					w_top = float(g.get("w_top", 1.0))
 					# 1) Process TP/SL on open lots
 					new_open = []
 					for lot in g["open_lots"]:
@@ -134,13 +144,24 @@ class LiveGridEngine:
 						new_open.append(lot)
 					g["open_lots"] = new_open
 					# 2) Detect downward crosses and buy (limit fills)
-					if self._paper.usdt_balance > amount and g["lb"] <= p <= g["ub"]:
-						for line in lines:
+					if g["lb"] <= p <= g["ub"]:
+						for idx, line in enumerate(lines):
 							if p <= line < prev_px:
 								lk = f"{line:.8f}"
 								if g["occupied"].get(lk):
 									continue
-								buy_amount = min(amount, self._paper.usdt_balance)
+								if max_lots is not None and len(g["open_lots"]) >= int(max_lots):
+									break
+								# compute weighted amount and enforce cap
+								den = max(1, len(lines) - 1)
+								w = float(w_bottom) + (float(w_top) - float(w_bottom)) * (idx / den)
+								buy_amount = amount * max(0.0, w)
+								if cap is not None:
+									engaged_now = sum(l["cost"] for l in g["open_lots"]) if g["open_lots"] else 0.0
+									remain_cap = max(0.0, float(cap) - engaged_now)
+									max_by_cap = remain_cap / (1.0 + (self._paper.fee_bps / 10000.0)) if getattr(self._paper, 'fee_bps', None) is not None else remain_cap
+									buy_amount = min(buy_amount, max_by_cap)
+								buy_amount = min(buy_amount, self._paper.usdt_balance)
 								if buy_amount <= 0:
 									break
 								_ = await self._paper.place_order(self._market, "BUY", buy_amount / max(p, 1e-9), p)
