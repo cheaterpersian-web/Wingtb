@@ -228,7 +228,21 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			[InlineKeyboardButton(text="تنظیم API صرافی CoinEx", callback_data="api:open")],
 			[InlineKeyboardButton(text="پریست: 20 گرید، 0.5% گام، 1% حدسود/حدضرر", callback_data="preset:20:0.005:0.01:0.01")],
 		])
-		await message.answer("ربات گرید ترید (نسخه آزمایشی) آماده است.", reply_markup=kb)
+		# Compose intro with training note and API status
+		intro = "قبل از هرکاری آموزش‌های کانال را ببینید\n@wingtb\n\n"
+		cfg = await repo.get_settings()
+		has_api = bool((cfg.get("coinex_api_key") or "").strip() and (cfg.get("coinex_api_secret") or "").strip())
+		if has_api:
+			b = exec_gateway.balances()
+			fee = getattr(exec_gateway, "fee_bps", 0.0)
+			intro += (
+				"🔐 API تنظیم شده است.\n"
+				f"صرافی: CoinEx | کارمزد اسپات: {fee:.2f} bps\n"
+				f"موجودی={b['USDT']:.2f} USDT | مقدار={b['ASSET_QTY']:.8f} | قیمت={b['ASSET_PRICE']:.8f} | ارزش={b['EQUITY']:.2f}\n\n"
+			)
+		else:
+			intro += "❗️ API تنظیم نشده است. لطفاً از دکمه «تنظیم API صرافی CoinEx» استفاده کنید.\n\n"
+		await message.answer(intro, reply_markup=kb)
 
 	@dp.message(Command("status"))
 	async def cmd_status(message: Message):
