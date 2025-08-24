@@ -259,7 +259,8 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			[InlineKeyboardButton(text="پریست: 20 گرید، 0.5% گام، 1% حدسود/حدضرر", callback_data="preset:20:0.005:0.01:0.01")],
 		])
 		# Compose intro with training note and API status
-		intro = ""		env_access = os.getenv("COINEX_ACCESS_ID", "").strip()
+		intro = ""
+		env_access = os.getenv("COINEX_ACCESS_ID", "").strip()
 		env_secret = os.getenv("COINEX_SECRET_KEY", "").strip()
 		if env_access and env_secret:
 			b = exec_gateway.balances()
