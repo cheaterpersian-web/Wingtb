@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import sqlite3
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
@@ -78,6 +79,10 @@ class SQLiteRepo:
         )
         self._conn.commit()
 
+        # ensure settings row exists
+        cur.execute("INSERT OR IGNORE INTO settings (id, json) VALUES (1, '{}')")
+        self._conn.commit()
+
     async def insert_trade(self, t: TradeRow) -> None:
         await asyncio.to_thread(self._insert_trade_sync, t)
 
@@ -145,5 +150,46 @@ class SQLiteRepo:
         cur = self._conn.cursor()
         cur.execute("DELETE FROM trades")
         cur.execute("DELETE FROM balances")
+        self._conn.commit()
+
+    async def get_settings(self) -> dict:
+        return await asyncio.to_thread(self._get_settings_sync)
+
+    def _get_settings_sync(self) -> dict:
+        assert self._conn is not None
+        cur = self._conn.execute("SELECT json FROM settings WHERE id=1")
+        row = cur.fetchone()
+        if not row:
+            return {}
+        try:
+            return json.loads(row[0] or "{}")
+        except Exception:
+            return {}
+
+    async def set_settings(self, data: dict) -> None:
+        await asyncio.to_thread(self._set_settings_sync, data)
+
+    def _set_settings_sync(self, data: dict) -> None:
+        assert self._conn is not None
+        js = json.dumps(data)
+        self._conn.execute("INSERT OR REPLACE INTO settings (id, json) VALUES (1, ?)", (js,))
+        self._conn.commit()
+
+    async def update_settings(self, patch: dict) -> None:
+        await asyncio.to_thread(self._update_settings_sync, patch)
+
+    def _update_settings_sync(self, patch: dict) -> None:
+        assert self._conn is not None
+        cur = self._conn.execute("SELECT json FROM settings WHERE id=1")
+        row = cur.fetchone()
+        base = {}
+        if row:
+            try:
+                base = json.loads(row[0] or "{}")
+            except Exception:
+                base = {}
+        base.update(patch)
+        js = json.dumps(base)
+        self._conn.execute("INSERT OR REPLACE INTO settings (id, json) VALUES (1, ?)", (js,))
         self._conn.commit()
 
