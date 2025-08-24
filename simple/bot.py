@@ -325,13 +325,14 @@ async def main() -> None:
 			[InlineKeyboardButton(text="روشن کردن گرید ▶️", callback_data="grid:on"), InlineKeyboardButton(text="خاموش کردن گرید ⏹", callback_data="grid:off")],
 			[InlineKeyboardButton(text="سطوح گرید 📐", callback_data="grid:levels")],
 			[InlineKeyboardButton(text="افزایش مبلغ +10", callback_data="amt:+10"), InlineKeyboardButton(text="کاهش مبلغ -10", callback_data="amt:-10")],
+			[InlineKeyboardButton(text="انتخاب ارز 🎯", callback_data="pair:open:0")],
 			[InlineKeyboardButton(text="پریست: 20 گرید، 0.5% گام، 1% حدسود/حدضرر", callback_data="preset:20:0.005:0.01:0.01")],
 		])
 		await message.answer("ربات گرید ترید (نسخه آزمایشی) آماده است.", reply_markup=kb)
 
 	@dp.callback_query(F.data == "menu:status")
 	async def cb_status(q: CallbackQuery):
-		await q.message.edit_text(paper.status() + f" | مبلغ پایه={base_amount_usdt:.2f} USDT")
+		await q.message.edit_text(paper.status() + f" | نماد={market} | مبلغ پایه={base_amount_usdt:.2f} USDT")
 		await q.answer()
 
 	@dp.callback_query(F.data == "menu:price")
@@ -367,7 +368,7 @@ async def main() -> None:
 
 	async def start_grid(grids_n: int, step_p: float, tp_p: float, sl_p: float, amt: float, chat_id: int):
 		if running["on"]:
-			await bot.send_message(chat_id, "Already ON")
+			await bot.send_message(chat_id, "در حال اجرا است")
 			return
 		# clamp params
 		grids_n = max(10, min(30, grids_n))
@@ -396,13 +397,13 @@ async def main() -> None:
 		running["on"] = False
 		live["grid"] = None
 		await bot.send_message(q.message.chat.id, "متوقف شد.")
-		await q.answer("Grid OFF")
+		await q.answer("گرید خاموش شد")
 
 	@dp.callback_query(F.data == "grid:levels")
 	async def cb_grid_levels(q: CallbackQuery):
 		g = live.get("grid")
 		if not g:
-			await bot.send_message(q.message.chat.id, "Grid is OFF. Use /grid_on")
+			await bot.send_message(q.message.chat.id, "گرید خاموش است. از /grid_on استفاده کنید")
 		else:
 			lines = g["lines"]
 			text = f"کف={g['lb']:.8f} | سقف={g['ub']:.8f} | تعداد خطوط={len(lines)} | حدسود={g['tp_pct']*100:.2f}% | حدضرر={g['sl_pct']*100:.2f}%\n"
@@ -421,7 +422,7 @@ async def main() -> None:
 			await q.message.edit_text(paper.status() + f" | مبلغ پایه={base_amount_usdt:.2f} USDT")
 		except Exception:
 			pass
-		await q.answer("Updated")
+		await q.answer("به‌روزرسانی شد")
 
 	@dp.callback_query(F.data.startswith("preset:"))
 	async def cb_preset(q: CallbackQuery):
@@ -432,6 +433,63 @@ async def main() -> None:
 		p = editor[q.message.chat.id]
 		await q.message.edit_text(preset_text(p), reply_markup=preset_kb(p))
 		await q.answer("ویرایش پریست")
+
+	@dp.callback_query(F.data.startswith("pair:"))
+	async def cb_pair(q: CallbackQuery):
+		nonlocal market, anchor_px
+		try:
+			parts = q.data.split(":")
+			action = parts[1] if len(parts) > 1 else ""
+			PAIRS = ["TRXUSDT","BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","ADAUSDT","DOGEUSDT","BNBUSDT","TONUSDT","LINKUSDT","LTCUSDT","OPUSDT","ARBUSDT","TIAUSDT","AVAXUSDT","NEARUSDT"]
+			if action in ("open", "page"):
+				page = int(parts[2]) if len(parts) > 2 else 0
+				page_size = 6
+				total_pages = (len(PAIRS) + page_size - 1) // page_size
+				page = max(0, min(total_pages - 1, page))
+				start_i = page * page_size
+				page_pairs = PAIRS[start_i : start_i + page_size]
+				rows = [[InlineKeyboardButton(text=sym, callback_data=f"pair:set:{sym}")] for sym in page_pairs]
+				nav = []
+				if page > 0:
+					nav.append(InlineKeyboardButton(text="◀️ قبلی", callback_data=f"pair:page:{page-1}"))
+				if page < total_pages - 1:
+					nav.append(InlineKeyboardButton(text="بعدی ▶️", callback_data=f"pair:page:{page+1}"))
+				bottom = [
+					InlineKeyboardButton(text="ورود دستی 📝", callback_data="pair:manual"),
+					InlineKeyboardButton(text="انصراف ❌", callback_data="pair:cancel"),
+				]
+				inline = rows + ([nav] if nav else []) + [bottom]
+				kb = InlineKeyboardMarkup(inline_keyboard=inline)
+				await q.message.edit_text(f"نماد فعلی: {market}\nیک نماد را انتخاب کنید:", reply_markup=kb)
+				await q.answer()
+				return
+			if action == "manual":
+				await q.message.edit_text("برای تنظیم نماد دلخواه، دستور زیر را ارسال کنید:\n/pair TRXUSDT")
+				await q.answer()
+				return
+			if action == "cancel":
+				await q.message.edit_text("انتخاب نماد لغو شد.")
+				await q.answer()
+				return
+			if action == "set" and len(parts) > 2:
+				sym = parts[2].upper()
+				try:
+					px = await cx.price(sym)
+				except Exception:
+					await q.answer("نماد نامعتبر یا در دسترس نیست", show_alert=True)
+					return
+				if running.get("on"):
+					running["on"] = False
+					live["grid"] = None
+					await bot.send_message(q.message.chat.id, "گرید متوقف شد به‌خاطر تغییر نماد.")
+				market = sym
+				anchor_px = px
+				await paper.on_price(px)
+				await q.message.edit_text(f"نماد به {market} تغییر کرد. قیمت فعلی={px:.8f}\nبرای شروع، «روشن کردن گرید ▶️» را بزنید.")
+				await q.answer("نماد تنظیم شد")
+				return
+		except Exception:
+			await q.answer("خطا", show_alert=False)
 
 	@dp.callback_query(F.data.startswith("edit:"))
 	async def cb_edit(q: CallbackQuery):
@@ -469,7 +527,7 @@ async def main() -> None:
 
 	@dp.message(Command("status"))
 	async def status(message: Message):
-		await message.answer(paper.status() + f" | مبلغ پایه={base_amount_usdt:.2f} USDT")
+		await message.answer(paper.status() + f" | نماد={market} | مبلغ پایه={base_amount_usdt:.2f} USDT")
 
 	@dp.message(Command("price"))
 	async def cmd_price(message: Message):
@@ -478,7 +536,7 @@ async def main() -> None:
 			await paper.on_price(p)
 			await message.answer(f"قیمت={p:.8f}")
 		except Exception as e:
-			await message.answer(f"ERR: {e}")
+			await message.answer(f"خطا: {e}")
 
 	running = {"on": False}
 	live = {"grid": None}  # {lb, ub, lines, tp_pct, sl_pct, amount, open_lots, prev_px}
@@ -553,7 +611,7 @@ async def main() -> None:
 	@dp.message(Command("grid_on"))
 	async def grid_on(message: Message):
 		if running["on"]:
-			await message.answer("Already ON")
+			await message.answer("در حال اجرا است")
 			return
 		nonlocal anchor_px
 		anchor_px = await cx.price(market)
@@ -580,19 +638,19 @@ async def main() -> None:
 		live["grid"] = {"lb": lb, "ub": ub, "lines": lines, "tp_pct": tp_p, "sl_pct": sl_p, "amount": amt, "open_lots": [], "occupied": occupied, "prev_px": center}
 		running["on"] = True
 		asyncio.create_task(loop_prices(message.chat.id))
-		await message.answer(f"Grid ON (15m) | center={center:.8f} grids={grids_n*2+1} step={step_p*100:.2f}% tp={tp_p*100:.2f}% sl={sl_p*100:.2f}% amount={amt:.2f}\nStreaming…")
+		await message.answer(f"گرید روشن شد (۱۵ دقیقه) | مرکز={center:.8f} | گریدها={grids_n*2+1} | گام={step_p*100:.2f}% | حدسود={tp_p*100:.2f}% | حدضرر={sl_p*100:.2f}% | مبلغ={amt:.2f}\nدر حال اجرا…")
 
 	@dp.message(Command("grid_off"))
 	async def grid_off(message: Message):
 		running["on"] = False
 		live["grid"] = None
-		await message.answer("Stopped.")
+		await message.answer("متوقف شد.")
 
 	@dp.message(Command("grid_levels"))
 	async def grid_levels(message: Message):
 		g = live.get("grid")
 		if not g:
-			await message.answer("Grid is OFF. Use /grid_on")
+			await message.answer("گرید خاموش است. از /grid_on استفاده کنید")
 			return
 		lines = g["lines"]
 		text = f"کف={g['lb']:.8f} | سقف={g['ub']:.8f} | تعداد خطوط={len(lines)} | حدسود={g['tp_pct']*100:.2f}% | حدضرر={g['sl_pct']*100:.2f}%\n"
@@ -895,6 +953,28 @@ async def main() -> None:
 	async def sell(message: Message):
 		txt = await paper.sell(market, paper.qty)
 		await message.answer(txt)
+
+	@dp.message(Command("pair"))
+	async def cmd_pair(message: Message):
+		parts = message.text.split()
+		if len(parts) < 2:
+			await message.answer("نحوه استفاده: /pair TRXUSDT")
+			return
+		sym = parts[1].upper()
+		nonlocal market, anchor_px
+		try:
+			px = await cx.price(sym)
+		except Exception:
+			await message.answer("نماد نامعتبر یا در دسترس نیست")
+			return
+		if running.get("on"):
+			running["on"] = False
+			live["grid"] = None
+			await message.answer("گرید متوقف شد به‌خاطر تغییر نماد.")
+		market = sym
+		anchor_px = px
+		await paper.on_price(px)
+		await message.answer(f"نماد به {market} تغییر کرد. قیمت فعلی={px:.8f}")
 
 	await dp.start_polling(bot)
 
