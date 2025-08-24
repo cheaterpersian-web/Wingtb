@@ -84,6 +84,8 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 		g2, st2, tp2, sl2, amt2 = clamp_params(gr, st, tp, sl, base_amount_usdt)
 		editor[query.message.chat.id] = {"grids": g2, "step": st2, "tp": tp2, "sl": sl2, "amount": amt2}
 		p = editor[query.message.chat.id]
+		# persist preset
+		await repo.update_settings({"preset": p})
 		await query.message.answer(preset_text(p), reply_markup=preset_kb(p))
 		await query.answer()
 
@@ -94,6 +96,8 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 		try:
 			if cmd == "edit:start":
 				info = await engine.start(query.message.chat.id, int(p["grids"]), float(p["step"]), float(p["tp"]), float(p["sl"]), float(p["amount"]))
+				# persist when starting too (finalize preset)
+				await repo.update_settings({"preset": p})
 				editor.pop(query.message.chat.id, None)
 				await query.message.answer(
 					f"گرید روشن شد (۱۵ دقیقه) | مرکز={info['center']:.8f} | گریدها={info['grids_total']} | گام={info['step_pct']*100:.2f}% | حدسود={info['tp_pct']*100:.2f}% | حدضرر={info['sl_pct']*100:.2f}% | مبلغ={info['amount']:.2f}"
@@ -118,6 +122,8 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 				p["amount"] = float(p["amount"]) + (10.0 if op == "+10" else -10.0)
 			p["grids"], p["step"], p["tp"], p["sl"], p["amount"] = clamp_params(int(p["grids"]), float(p["step"]), float(p["tp"]), float(p["sl"]), float(p["amount"]))
 			editor[query.message.chat.id] = p
+			# persist after each change
+			await repo.update_settings({"preset": p})
 			await query.message.edit_text(preset_text(p), reply_markup=preset_kb(p))
 			await query.answer("به‌روزرسانی شد")
 		except Exception:
@@ -374,10 +380,17 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			arg_start = 3 if len(parts) > 1 and parts[1].lower() == "grid" else 2
 			lb = _get(arg_start, float) or (min(closes) * 0.99)
 			ub = _get(arg_start + 1, float) or (max(closes) * 1.01)
-			grids = int(_get(arg_start + 2, int) or 20)
-			tp_pct = (_get(arg_start + 3, float) or 1.0) / 100.0
-			amount = float(_get(arg_start + 4, float) or base_amount_usdt)
-			# derive fee and start equity from current exec settings
+			# load saved preset defaults
+			cfg_all = await repo.get_settings()
+			preset = cfg_all.get("preset") or {}
+			preset_grids = int(preset.get("grids", 20))
+			preset_tp = float(preset.get("tp", 0.01))
+			preset_amt = float(preset.get("amount", base_amount_usdt))
+			grids = int(_get(arg_start + 2, int) or preset_grids)
+			# tp: if user provided percent, divide by 100; else use preset fraction
+			tp_arg = _get(arg_start + 3, float)
+			tp_pct = (tp_arg / 100.0) if (tp_arg is not None) else preset_tp
+			amount = float(_get(arg_start + 4, float) or preset_amt)
 			priv = CoinExPrivate()
 			mk_bps, tk_bps = await priv.get_spot_fee_bps()
 			fee_bps_cfg = tk_bps or getattr(exec_gateway, "fee_bps", 10.0)
