@@ -226,7 +226,6 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			[InlineKeyboardButton(text="روشن کردن گرید ▶️", callback_data="grid:on"), InlineKeyboardButton(text="خاموش کردن گرید ⏹", callback_data="grid:off")],
 			[InlineKeyboardButton(text="سطوح گرید 📐", callback_data="grid:levels")],
 			[InlineKeyboardButton(text="انتخاب ارز 🎯", callback_data="pair:open:0")],
-			[InlineKeyboardButton(text="تنظیم API (.env)", callback_data="env:open")],
 			[InlineKeyboardButton(text="پریست: 20 گرید، 0.5% گام، 1% حدسود/حدضرر", callback_data="preset:20:0.005:0.01:0.01")],
 		])
 		# Compose intro with training note and API status
@@ -253,15 +252,10 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 				"🔐 API تنظیم شده است.\n"
 				f"صرافی: CoinEx | کارمزد اسپات: {fee:.2f} bps\n"
 				f"موجودی={b['USDT']:.2f} USDT | مقدار={b['ASSET_QTY']:.8f} | قیمت={b['ASSET_PRICE']:.8f} | ارزش={b['EQUITY']:.2f}\n\n"
-				"(توصیه: از این پس API را در .env نگه‌داری کنید)\n"
+				"(برای تغییر از /apia و /apis استفاده کنید)\n"
 			)
 		else:
-			intro += (
-				"❗️ API تنظیم نشده است.\n"
-				"روش ۱) از دستورات استفاده کنید:\n"
-				"/apia YOUR_ACCESS_ID\n/apis YOUR_SECRET_KEY\n\n"
-				"روش ۲) فایل .env را ویرایش کنید و COINEX_ACCESS_ID / COINEX_SECRET_KEY را تنظیم کنید.\n\n"
-			)
+			intro += "❗️ API تنظیم نشده است. با دستورات زیر تنظیم کنید:\n/apia YOUR_ACCESS_ID\n/apis YOUR_SECRET_KEY\n\n"
 		await message.answer(intro, reply_markup=kb)
 
 	@dp.message(Command("status"))
@@ -1084,8 +1078,8 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 		if len(parts) < 2 or not parts[1].strip():
 			await message.answer("نحوه استفاده: /apia YOUR_ACCESS_ID")
 			return
-		_env_write_var("COINEX_ACCESS_ID", parts[1].strip())
-		await message.answer("COINEX_ACCESS_ID در .env ذخیره شد")
+		await repo.update_settings({"coinex_api_key": parts[1].strip()})
+		await message.answer("API Key ذخیره شد")
 
 	@dp.message(Command("apis"))
 	async def cmd_apis(message: Message):
@@ -1093,6 +1087,6 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 		if len(parts) < 2 or not parts[1].strip():
 			await message.answer("نحوه استفاده: /apis YOUR_SECRET_KEY")
 			return
-		_env_write_var("COINEX_SECRET_KEY", parts[1].strip())
-		await message.answer("COINEX_SECRET_KEY در .env ذخیره شد")
+		await repo.update_settings({"coinex_api_secret": parts[1].strip()})
+		await message.answer("API Secret ذخیره شد")
 
