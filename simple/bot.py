@@ -341,6 +341,30 @@ async def main() -> None:
 		await q.message.edit_text(f"PX={p:.8f}")
 		await q.answer()
 
+	def clamp_params(gr: int, st: float, tp: float, sl: float, amt: float):
+		gr = max(10, min(30, gr))
+		st = max(0.003, min(0.01, st))
+		tp = max(0.003, min(0.02, tp))
+		sl = max(0.005, min(0.03, sl))
+		amt = max(1.0, amt)
+		return gr, st, tp, sl, amt
+
+	def preset_text(p: Dict[str, float | int]) -> str:
+		return (
+			f"Preset Editor\n"
+			f"Grids={p['grids']} | Step={float(p['step'])*100:.2f}% | TP={float(p['tp'])*100:.2f}% | SL={float(p['sl'])*100:.2f}% | Amount={float(p['amount']):.2f} USDT"
+		)
+
+	def preset_kb(p: Dict[str, float | int]) -> InlineKeyboardMarkup:
+		return InlineKeyboardMarkup(inline_keyboard=[
+			[InlineKeyboardButton(text="Grids -2", callback_data="edit:gr:-2"), InlineKeyboardButton(text="Grids +2", callback_data="edit:gr:+2")],
+			[InlineKeyboardButton(text="Step -0.1%", callback_data="edit:step:-0.001"), InlineKeyboardButton(text="Step +0.1%", callback_data="edit:step:+0.001")],
+			[InlineKeyboardButton(text="TP -0.2%", callback_data="edit:tp:-0.002"), InlineKeyboardButton(text="TP +0.2%", callback_data="edit:tp:+0.002")],
+			[InlineKeyboardButton(text="SL -0.2%", callback_data="edit:sl:-0.002"), InlineKeyboardButton(text="SL +0.2%", callback_data="edit:sl:+0.002")],
+			[InlineKeyboardButton(text="Amount -10", callback_data="edit:amt:-10"), InlineKeyboardButton(text="Amount +10", callback_data="edit:amt:+10")],
+			[InlineKeyboardButton(text="Start ▶️", callback_data="edit:start"), InlineKeyboardButton(text="Cancel ❌", callback_data="edit:cancel")],
+		])
+
 	async def start_grid(grids_n: int, step_p: float, tp_p: float, sl_p: float, amt: float, chat_id: int):
 		if running["on"]:
 			await bot.send_message(chat_id, "Already ON")
@@ -402,12 +426,46 @@ async def main() -> None:
 	@dp.callback_query(F.data.startswith("preset:"))
 	async def cb_preset(q: CallbackQuery):
 		parts = q.data.split(":")
-		gr = int(parts[1])
-		st = float(parts[2])
-		tp = float(parts[3])
-		sl = float(parts[4])
-		await start_grid(gr, st, tp, sl, base_amount_usdt, q.message.chat.id)
-		await q.answer("Preset applied")
+		gr = int(parts[1]); st = float(parts[2]); tp = float(parts[3]); sl = float(parts[4])
+		gr, st, tp, sl, amt = clamp_params(gr, st, tp, sl, base_amount_usdt)
+		editor[q.message.chat.id] = {"grids": gr, "step": st, "tp": tp, "sl": sl, "amount": amt}
+		p = editor[q.message.chat.id]
+		await q.message.edit_text(preset_text(p), reply_markup=preset_kb(p))
+		await q.answer("Preset editor")
+
+	@dp.callback_query(F.data.startswith("edit:"))
+	async def cb_edit(q: CallbackQuery):
+		p = editor.get(q.message.chat.id) or {"grids": 20, "step": 0.005, "tp": 0.01, "sl": 0.01, "amount": base_amount_usdt}
+		cmd = q.data
+		try:
+			if cmd == "edit:start":
+				await start_grid(int(p["grids"]), float(p["step"]), float(p["tp"]), float(p["sl"]), float(p["amount"]), q.message.chat.id)
+				editor.pop(q.message.chat.id, None)
+				await q.answer("Grid started")
+				return
+			if cmd == "edit:cancel":
+				editor.pop(q.message.chat.id, None)
+				await q.message.edit_text("Canceled preset editor.")
+				await q.answer()
+				return
+			kind, op = cmd.split(":")[1], cmd.split(":")[2]
+			if kind == "gr":
+				p["grids"] = int(p["grids"]) + (2 if op == "+2" else -2)
+			elif kind == "step":
+				p["step"] = float(p["step"]) + float(op)
+			elif kind == "tp":
+				p["tp"] = float(p["tp"]) + float(op)
+			elif kind == "sl":
+				p["sl"] = float(p["sl"]) + float(op)
+			elif kind == "amt":
+				p["amount"] = float(p["amount"]) + (10.0 if op == "+10" else -10.0)
+			# clamp and persist
+			p["grids"], p["step"], p["tp"], p["sl"], p["amount"] = clamp_params(int(p["grids"]), float(p["step"]), float(p["tp"]), float(p["sl"]), float(p["amount"]))
+			editor[q.message.chat.id] = p
+			await q.message.edit_text(preset_text(p), reply_markup=preset_kb(p))
+			await q.answer("Updated")
+		except Exception:
+			await q.answer("Error", show_alert=False)
 
 	@dp.message(Command("status"))
 	async def status(message: Message):
@@ -424,6 +482,7 @@ async def main() -> None:
 
 	running = {"on": False}
 	live = {"grid": None}  # {lb, ub, lines, tp_pct, sl_pct, amount, open_lots, prev_px}
+	editor: Dict[int, Dict[str, float | int]] = {}
 
 	async def loop_prices(chat_id: int):
 		while running["on"]:
