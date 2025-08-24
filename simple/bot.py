@@ -293,7 +293,7 @@ class Paper:
 
 	def status(self) -> str:
 		equity = self.usdt + self.qty * self.price
-		return f"USDT={self.usdt:.2f} QTY={self.qty:.8f} PX={self.price:.8f} EQ={equity:.2f}"
+		return f"موجودی={self.usdt:.2f} USDT | مقدار={self.qty:.8f} | قیمت={self.price:.8f} | ارزش={equity:.2f}"
 
 
 async def main() -> None:
@@ -322,23 +322,23 @@ async def main() -> None:
 	async def start(message: Message):
 		kb = InlineKeyboardMarkup(inline_keyboard=[
 			[InlineKeyboardButton(text="وضعیت 💼", callback_data="menu:status"), InlineKeyboardButton(text="قیمت ⚡", callback_data="menu:price")],
-			[InlineKeyboardButton(text="Grid ON ▶️", callback_data="grid:on"), InlineKeyboardButton(text="Grid OFF ⏹", callback_data="grid:off")],
-			[InlineKeyboardButton(text="Grid Levels 📐", callback_data="grid:levels")],
-			[InlineKeyboardButton(text="Amount +10", callback_data="amt:+10"), InlineKeyboardButton(text="Amount -10", callback_data="amt:-10")],
-			[InlineKeyboardButton(text="Preset: 20gr 0.5% tp1% sl1%", callback_data="preset:20:0.005:0.01:0.01")],
+			[InlineKeyboardButton(text="روشن کردن گرید ▶️", callback_data="grid:on"), InlineKeyboardButton(text="خاموش کردن گرید ⏹", callback_data="grid:off")],
+			[InlineKeyboardButton(text="سطوح گرید 📐", callback_data="grid:levels")],
+			[InlineKeyboardButton(text="افزایش مبلغ +10", callback_data="amt:+10"), InlineKeyboardButton(text="کاهش مبلغ -10", callback_data="amt:-10")],
+			[InlineKeyboardButton(text="پریست: 20 گرید، 0.5% گام، 1% حدسود/حدضرر", callback_data="preset:20:0.005:0.01:0.01")],
 		])
-		await message.answer("Simple CoinEx Paper Bot online.", reply_markup=kb)
+		await message.answer("ربات گرید ترید (نسخه آزمایشی) آماده است.", reply_markup=kb)
 
 	@dp.callback_query(F.data == "menu:status")
 	async def cb_status(q: CallbackQuery):
-		await q.message.edit_text(paper.status() + f" | BASE={base_amount_usdt:.2f} USDT")
+		await q.message.edit_text(paper.status() + f" | مبلغ پایه={base_amount_usdt:.2f} USDT")
 		await q.answer()
 
 	@dp.callback_query(F.data == "menu:price")
 	async def cb_price(q: CallbackQuery):
 		p = await cx.price(market)
 		await paper.on_price(p)
-		await q.message.edit_text(f"PX={p:.8f}")
+		await q.message.edit_text(f"قیمت={p:.8f}")
 		await q.answer()
 
 	def clamp_params(gr: int, st: float, tp: float, sl: float, amt: float):
@@ -351,18 +351,18 @@ async def main() -> None:
 
 	def preset_text(p: Dict[str, float | int]) -> str:
 		return (
-			f"Preset Editor\n"
-			f"Grids={p['grids']} | Step={float(p['step'])*100:.2f}% | TP={float(p['tp'])*100:.2f}% | SL={float(p['sl'])*100:.2f}% | Amount={float(p['amount']):.2f} USDT"
+			f"ویرایش پریست\n"
+			f"گریدها={p['grids']} | گام={float(p['step'])*100:.2f}% | حدسود={float(p['tp'])*100:.2f}% | حدضرر={float(p['sl'])*100:.2f}% | مبلغ={float(p['amount']):.2f} USDT"
 		)
 
 	def preset_kb(p: Dict[str, float | int]) -> InlineKeyboardMarkup:
 		return InlineKeyboardMarkup(inline_keyboard=[
-			[InlineKeyboardButton(text="Grids -2", callback_data="edit:gr:-2"), InlineKeyboardButton(text="Grids +2", callback_data="edit:gr:+2")],
-			[InlineKeyboardButton(text="Step -0.1%", callback_data="edit:step:-0.001"), InlineKeyboardButton(text="Step +0.1%", callback_data="edit:step:+0.001")],
-			[InlineKeyboardButton(text="TP -0.2%", callback_data="edit:tp:-0.002"), InlineKeyboardButton(text="TP +0.2%", callback_data="edit:tp:+0.002")],
-			[InlineKeyboardButton(text="SL -0.2%", callback_data="edit:sl:-0.002"), InlineKeyboardButton(text="SL +0.2%", callback_data="edit:sl:+0.002")],
-			[InlineKeyboardButton(text="Amount -10", callback_data="edit:amt:-10"), InlineKeyboardButton(text="Amount +10", callback_data="edit:amt:+10")],
-			[InlineKeyboardButton(text="Start ▶️", callback_data="edit:start"), InlineKeyboardButton(text="Cancel ❌", callback_data="edit:cancel")],
+			[InlineKeyboardButton(text="گرید -2", callback_data="edit:gr:-2"), InlineKeyboardButton(text="گرید +2", callback_data="edit:gr:+2")],
+			[InlineKeyboardButton(text="گام -0.1%", callback_data="edit:step:-0.001"), InlineKeyboardButton(text="گام +0.1%", callback_data="edit:step:+0.001")],
+			[InlineKeyboardButton(text="حدسود -0.2%", callback_data="edit:tp:-0.002"), InlineKeyboardButton(text="حدسود +0.2%", callback_data="edit:tp:+0.002")],
+			[InlineKeyboardButton(text="حدضرر -0.2%", callback_data="edit:sl:-0.002"), InlineKeyboardButton(text="حدضرر +0.2%", callback_data="edit:sl:+0.002")],
+			[InlineKeyboardButton(text="مبلغ -10", callback_data="edit:amt:-10"), InlineKeyboardButton(text="مبلغ +10", callback_data="edit:amt:+10")],
+			[InlineKeyboardButton(text="شروع ▶️", callback_data="edit:start"), InlineKeyboardButton(text="انصراف ❌", callback_data="edit:cancel")],
 		])
 
 	async def start_grid(grids_n: int, step_p: float, tp_p: float, sl_p: float, amt: float, chat_id: int):
@@ -384,18 +384,18 @@ async def main() -> None:
 		live["grid"] = {"lb": lb, "ub": ub, "lines": lines, "tp_pct": tp_p, "sl_pct": sl_p, "amount": amt, "open_lots": [], "occupied": occupied, "prev_px": center}
 		running["on"] = True
 		asyncio.create_task(loop_prices(chat_id))
-		await bot.send_message(chat_id, f"Grid ON (15m) | center={center:.8f} grids={grids_n*2+1} step={step_p*100:.2f}% tp={tp_p*100:.2f}% sl={sl_p*100:.2f}% amount={amt:.2f}\nStreaming…")
+		await bot.send_message(chat_id, f"گرید روشن شد (۱۵ دقیقه) | مرکز={center:.8f} | گریدها={grids_n*2+1} | گام={step_p*100:.2f}% | حدسود={tp_p*100:.2f}% | حدضرر={sl_p*100:.2f}% | مبلغ={amt:.2f}\nدر حال اجرا…")
 
 	@dp.callback_query(F.data == "grid:on")
 	async def cb_grid_on(q: CallbackQuery):
 		await start_grid(20, 0.005, 0.01, 0.01, base_amount_usdt, q.message.chat.id)
-		await q.answer("Grid ON")
+		await q.answer("گرید روشن شد")
 
 	@dp.callback_query(F.data == "grid:off")
 	async def cb_grid_off(q: CallbackQuery):
 		running["on"] = False
 		live["grid"] = None
-		await bot.send_message(q.message.chat.id, "Stopped.")
+		await bot.send_message(q.message.chat.id, "متوقف شد.")
 		await q.answer("Grid OFF")
 
 	@dp.callback_query(F.data == "grid:levels")
@@ -405,8 +405,8 @@ async def main() -> None:
 			await bot.send_message(q.message.chat.id, "Grid is OFF. Use /grid_on")
 		else:
 			lines = g["lines"]
-			text = f"LB={g['lb']:.8f} UB={g['ub']:.8f} | lines={len(lines)} tp={g['tp_pct']*100:.2f}% sl={g['sl_pct']*100:.2f}%\n"
-			text += "Lines:\n" + "\n".join(f"{lv:.8f}" for lv in lines[:min(len(lines), 30)])
+			text = f"کف={g['lb']:.8f} | سقف={g['ub']:.8f} | تعداد خطوط={len(lines)} | حدسود={g['tp_pct']*100:.2f}% | حدضرر={g['sl_pct']*100:.2f}%\n"
+			text += "خطوط:\n" + "\n".join(f"{lv:.8f}" for lv in lines[:min(len(lines), 30)])
 			await bot.send_message(q.message.chat.id, text)
 		await q.answer()
 
@@ -418,7 +418,7 @@ async def main() -> None:
 				base_amount_usdt += 10
 			else:
 				base_amount_usdt = max(1.0, base_amount_usdt - 10)
-			await q.message.edit_text(paper.status() + f" | BASE={base_amount_usdt:.2f} USDT")
+			await q.message.edit_text(paper.status() + f" | مبلغ پایه={base_amount_usdt:.2f} USDT")
 		except Exception:
 			pass
 		await q.answer("Updated")
@@ -431,7 +431,7 @@ async def main() -> None:
 		editor[q.message.chat.id] = {"grids": gr, "step": st, "tp": tp, "sl": sl, "amount": amt}
 		p = editor[q.message.chat.id]
 		await q.message.edit_text(preset_text(p), reply_markup=preset_kb(p))
-		await q.answer("Preset editor")
+		await q.answer("ویرایش پریست")
 
 	@dp.callback_query(F.data.startswith("edit:"))
 	async def cb_edit(q: CallbackQuery):
@@ -441,11 +441,11 @@ async def main() -> None:
 			if cmd == "edit:start":
 				await start_grid(int(p["grids"]), float(p["step"]), float(p["tp"]), float(p["sl"]), float(p["amount"]), q.message.chat.id)
 				editor.pop(q.message.chat.id, None)
-				await q.answer("Grid started")
+				await q.answer("گرید شروع شد")
 				return
 			if cmd == "edit:cancel":
 				editor.pop(q.message.chat.id, None)
-				await q.message.edit_text("Canceled preset editor.")
+				await q.message.edit_text("ویرایش پریست لغو شد.")
 				await q.answer()
 				return
 			kind, op = cmd.split(":")[1], cmd.split(":")[2]
@@ -463,20 +463,20 @@ async def main() -> None:
 			p["grids"], p["step"], p["tp"], p["sl"], p["amount"] = clamp_params(int(p["grids"]), float(p["step"]), float(p["tp"]), float(p["sl"]), float(p["amount"]))
 			editor[q.message.chat.id] = p
 			await q.message.edit_text(preset_text(p), reply_markup=preset_kb(p))
-			await q.answer("Updated")
+			await q.answer("به‌روزرسانی شد")
 		except Exception:
-			await q.answer("Error", show_alert=False)
+			await q.answer("خطا", show_alert=False)
 
 	@dp.message(Command("status"))
 	async def status(message: Message):
-		await message.answer(paper.status() + f" | BASE={base_amount_usdt:.2f} USDT")
+		await message.answer(paper.status() + f" | مبلغ پایه={base_amount_usdt:.2f} USDT")
 
 	@dp.message(Command("price"))
 	async def cmd_price(message: Message):
 		try:
 			p = await cx.price(market)
 			await paper.on_price(p)
-			await message.answer(f"PX={p:.8f}")
+			await message.answer(f"قیمت={p:.8f}")
 		except Exception as e:
 			await message.answer(f"ERR: {e}")
 
@@ -506,7 +506,7 @@ async def main() -> None:
 							# execute sell
 							qty = lot["qty"]
 							_ = await paper.sell(market, qty)
-							await bot.send_message(chat_id, f"🔻 SL SELL {market} qty={qty:.8f} @ {p:.8f}")
+							await bot.send_message(chat_id, f"🔻 فروش با استاپ‌لاس {market} | مقدار={qty:.8f} | قیمت={p:.8f}")
 							lk = lot.get("line_key")
 							if lk is not None:
 								g["occupied"][lk] = False
@@ -514,7 +514,7 @@ async def main() -> None:
 						if p >= lot["tp"]:
 							qty = lot["qty"]
 							_ = await paper.sell(market, qty)
-							await bot.send_message(chat_id, f"✅ TP SELL {market} qty={qty:.8f} @ {p:.8f}")
+							await bot.send_message(chat_id, f"✅ فروش با تارگت {market} | مقدار={qty:.8f} | قیمت={p:.8f}")
 							lk = lot.get("line_key")
 							if lk is not None:
 								g["occupied"][lk] = False
@@ -542,7 +542,7 @@ async def main() -> None:
 									"line_key": lk,
 								})
 								g["occupied"][lk] = True
-								await bot.send_message(chat_id, f"🟢 BUY {market} amount={buy_amount:.2f} qty={qty:.8f} @ {p:.8f} | tp={p*(1+tp_pct):.8f} sl={p*(1-sl_pct):.8f}")
+								await bot.send_message(chat_id, f"🟢 خرید {market} | مبلغ={buy_amount:.2f} | مقدار={qty:.8f} | قیمت={p:.8f} | حدسود={p*(1+tp_pct):.8f} | حدضرر={p*(1-sl_pct):.8f}")
 								# continue checking deeper lines
 					g["prev_px"] = p
 				await asyncio.sleep(2)
@@ -595,8 +595,8 @@ async def main() -> None:
 			await message.answer("Grid is OFF. Use /grid_on")
 			return
 		lines = g["lines"]
-		text = f"LB={g['lb']:.8f} UB={g['ub']:.8f} | lines={len(lines)} tp={g['tp_pct']*100:.2f}% sl={g['sl_pct']*100:.2f}%\n"
-		text += "Lines:\n" + "\n".join(f"{lv:.8f}" for lv in lines[:min(len(lines), 30)])
+		text = f"کف={g['lb']:.8f} | سقف={g['ub']:.8f} | تعداد خطوط={len(lines)} | حدسود={g['tp_pct']*100:.2f}% | حدضرر={g['sl_pct']*100:.2f}%\n"
+		text += "خطوط:\n" + "\n".join(f"{lv:.8f}" for lv in lines[:min(len(lines), 30)])
 		await message.answer(text)
 
 	@dp.message(Command("backtest"))
@@ -641,11 +641,11 @@ async def main() -> None:
 				period, limit = "1hour", 2160
 				kl = await cx.klines(market, period, limit)
 			if not kl:
-				await message.answer("ERR backtest: no klines returned")
+				await message.answer("خطا بک‌تست: داده‌ای بازنگشت")
 				return
 			closes = [float(k.get("close") or 0.0) for k in kl]
 			if not closes:
-				await message.answer("ERR backtest: no closes extracted")
+				await message.answer("خطا بک‌تست: قیمت‌های پایانی استخراج نشد")
 				return
 			# Only grid mode supported now (default to grid if not specified)
 			if not mode_grid:
@@ -722,13 +722,13 @@ async def main() -> None:
 				forced_exits += 1
 			win_rate = (wins / exits * 100.0) if exits else 0.0
 			await message.answer(
-				f"Backtest ({scope})\n"
-				f"Entries={entries} | Exits={exits} | Wins={wins} | Losers={losers} | ForceExits={forced_exits} | WinRate={win_rate:.2f}%\n"
-				f"Profit={profit_usdt:.2f} | Loss={loss_usdt:.2f} | Final Equity={usdt:.2f}"
+				f"بک‌تست ({scope})\n"
+				f"ورودها={entries} | خروج‌ها={exits} | بردها={wins} | باخت‌ها={losers} | بستن اجباری={forced_exits} | نرخ برد={win_rate:.2f}%\n"
+				f"سود={profit_usdt:.2f} | ضرر={loss_usdt:.2f} | ارزش نهایی={usdt:.2f}"
 			)
 			return
 		except Exception as e:
-			await message.answer(f"ERR backtest: {e}")
+			await message.answer(f"خطا بک‌تست: {e}")
 
 	@dp.message(Command("optimize"))
 	async def optimize(message: Message):
@@ -756,11 +756,11 @@ async def main() -> None:
 			period, limit = "4hour", 540
 			kl = await cx.klines(market, period, limit)
 		if not kl:
-			await message.answer("ERR optimize: no klines returned")
+			await message.answer("خطا بهینه‌سازی: داده‌ای بازنگشت")
 			return
 		closes = [float(k.get("close") or 0.0) for k in kl]
 		if not closes:
-			await message.answer("ERR optimize: no closes extracted")
+			await message.answer("خطا بهینه‌سازی: قیمت‌های پایانی استخراج نشد")
 			return
 		fast_all = ema(closes, 12)
 		slow_all = ema(closes, 26)
@@ -867,24 +867,24 @@ async def main() -> None:
 			f"#{i+1} eq={c['equity']:.2f} wr={c['win_rate']:.1f}% tr={c['trades']} tp={c['tp']} sl={c['sl']} grids={c['grids']} rsiB={c['buy_rsi']} rsiS={c['sell_rsi']}"
 			for i, c in enumerate(top)
 		]
-		await message.answer("Top configs (" + scope + ")\n" + "\n".join(lines))
+		await message.answer("بهترین پیکربندی‌ها (" + scope + ")\n" + "\n".join(lines))
 
 	@dp.message(Command("set_amount"))
 	async def set_amount(message: Message):
 		parts = message.text.split()
 		if len(parts) < 2:
-			await message.answer("usage: /set_amount 100")
+			await message.answer("نحوه استفاده: /set_amount 100")
 			return
 		try:
 			val = float(parts[1])
 			if val <= 0:
 				raise ValueError("non-positive")
 		except Exception:
-			await message.answer("amount must be a positive number")
+			await message.answer("مبلغ باید یک عدد مثبت باشد")
 			return
 		nonlocal base_amount_usdt
 		base_amount_usdt = float(val)
-		await message.answer(f"Base amount set to {base_amount_usdt:.2f} USDT")
+		await message.answer(f"مبلغ پایه روی {base_amount_usdt:.2f} USDT تنظیم شد")
 
 	@dp.message(Command("buy"))
 	async def buy(message: Message):
