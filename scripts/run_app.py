@@ -9,6 +9,8 @@ from dotenv import load_dotenv
 
 from app.core.storage.db import SQLiteRepo
 from app.execution.paper_exec import PaperExecutionGateway
+from app.execution.real_exec_stub import RealExecutionGateway
+from app.execution.execution_router import ExecutionRouter
 from app.bot.handlers import setup_handlers
 
 
@@ -30,7 +32,9 @@ async def main() -> None:
 
 	repo = SQLiteRepo()
 	repo.connect()
-	exec_gateway = PaperExecutionGateway(repo, start_balance, fee_bps, slippage_bps)
+	paper = PaperExecutionGateway(repo, start_balance, fee_bps, slippage_bps)
+	real = RealExecutionGateway(repo, fee_bps)
+	exec_gateway = ExecutionRouter(paper, real)
 
 	bot = Bot(token)
 	dp = Dispatcher()

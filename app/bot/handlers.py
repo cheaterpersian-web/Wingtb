@@ -258,6 +258,8 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			[InlineKeyboardButton(text="تنظیم API صرافی CoinEx 🔐", callback_data="env:open")],
 			[InlineKeyboardButton(text="پریست: 20 گرید، 0.5% گام، 1% حدسود/حدضرر", callback_data="preset:20:0.005:0.01:0.01")],
 		])
+		mode_label = "حالت: اصلی" if getattr(exec_gateway, "get_mode", lambda: "paper")() == "real" else "حالت: آزمایشی"
+		kb.inline_keyboard.insert(2, [InlineKeyboardButton(text=mode_label + " 🔁", callback_data="mode:toggle")])
 		# Compose intro with training note and API status
 		intro = ""
 		env_access = os.getenv("COINEX_ACCESS_ID", "").strip()
@@ -952,6 +954,20 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			except Exception as e:
 				await query.message.answer(f"❌ خطا در روشن‌کردن گرید: {e}")
 		asyncio.create_task(run())
+
+	@dp.callback_query(F.data == "mode:toggle")
+	async def cb_mode_toggle(query: CallbackQuery):
+		try:
+			mode_now = getattr(exec_gateway, "get_mode", lambda: "paper")()
+			new_mode = "paper" if mode_now == "real" else "real"
+			setter = getattr(exec_gateway, "set_mode", None)
+			if setter:
+				setter(new_mode)
+			label = "حالت: اصلی" if new_mode == "real" else "حالت: آزمایشی"
+			await query.message.answer(f"حالت اجرا تغییر کرد: {label}")
+			await query.answer()
+		except Exception as e:
+			await query.answer(f"خطا: {e}", show_alert=False)
 
 	def _mask(v: str) -> str:
 		v = v or ""
