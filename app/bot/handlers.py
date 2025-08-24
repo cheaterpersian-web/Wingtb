@@ -972,7 +972,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 				if kb and kb.inline_keyboard and len(kb.inline_keyboard) > 2 and kb.inline_keyboard[2]:
 					kb.inline_keyboard[2][0].text = label + " 🔁"
 					await query.message.edit_reply_markup(kb)
-				except Exception:
+			except Exception:
 				pass
 			await query.message.answer(f"حالت اجرا تغییر کرد: {label}")
 			await query.answer()
