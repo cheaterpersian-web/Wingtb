@@ -35,7 +35,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 	async def cb_menu_status(query: CallbackQuery):
 		b = exec_gateway.balances()
 		text = (
-			f"موجودی={b['USDT']:.2f} USDT | مقدار={b['ASSET_QTY']:.8f} | قیمت={b['ASSET_PRICE']:.8f} | ارزش={b['EQUITY']:.2f} | مبلغ پایه={base_amount_usdt:.2f} USDT"
+			f"💰 USDT={b['USDT']:.2f} | 📦 مقدار={b['ASSET_QTY']:.8f} | 💹 قیمت={b['ASSET_PRICE']:.8f} | 💼 ارزش={b['EQUITY']:.2f} | 💵 مبلغ پایه={base_amount_usdt:.2f}"
 		)
 		await query.message.answer(text)
 		await query.answer()
@@ -45,7 +45,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 		try:
 			px = await feed.now_price(market)
 			await exec_gateway.on_price(float(px))
-			await query.message.answer(f"قیمت={float(px):.8f}")
+			await query.message.answer(f"💹 قیمت فعلی: {float(px):.8f}")
 		except Exception as e:
 			await query.message.answer(f"خطا: {e}")
 		await query.answer()
@@ -63,10 +63,10 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 
 	def preset_text(p: dict[str, float | int]) -> str:
 		return (
-			f"ویرایش پریست\n"
-			f"گریدها={p['grids']} | گام={float(p['step'])*100:.2f}% | حدسود={float(p['tp'])*100:.2f}% | حدضرر={float(p['sl'])*100:.2f}% | مبلغ={float(p['amount']):.2f} USDT\n"
-			f"سقف سرمایه={float(p.get('cap_usdt', 300.0)):.2f} | حداکثر پوزیشن={int(p.get('max_open_lots', 4))}\n"
-			f"وزن پایین={float(p.get('w_bottom', 1.5)):.2f} | وزن بالا={float(p.get('w_top', 0.75)):.2f}"
+			f"🛠️ ویرایش پریست\n"
+			f"🔢 گریدها={p['grids']} | 📏 گام={float(p['step'])*100:.2f}% | 🎯 حدسود={float(p['tp'])*100:.2f}% | 🛡️ حدضرر={float(p['sl'])*100:.2f}% | 💵 مبلغ={float(p['amount']):.2f} USDT\n"
+			f"💳 سقف سرمایه={float(p.get('cap_usdt', 300.0)):.2f} | 📊 حداکثر پوزیشن={int(p.get('max_open_lots', 4))}\n"
+			f"⚖️ وزن پایین={float(p.get('w_bottom', 1.5)):.2f} | وزن بالا={float(p.get('w_top', 0.75)):.2f}"
 		)
 
 	def preset_kb(p: dict[str, float | int]) -> InlineKeyboardMarkup:
@@ -347,6 +347,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			)
 		else:
 			intro += "❗️ API تنظیم نشده است. لطفاً از طریق ربات @wingtbbot در بخش «ربات‌های من» آن را تنظیم کنید.\n\n"
+		await _reply(message, "✅ خوش آمدید! برای تغییر API از دکمه‌ها استفاده کنید.")
 		await _reply(message, intro, reply_markup=kb)
 
 		cfg = await repo.get_settings()
@@ -490,10 +491,10 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 				return
 			net_profit = res['final_equity'] - start_eq
 			await message.answer(
-				f"بک‌تست ({scope})\n"
-				f"ورودها={res['entries']} | خروج‌ها={res['exits']} | بردها={res['wins']} | باخت‌ها={res['losers']} | بستن اجباری={res['forced_exits']} | نرخ برد={res['win_rate']:.2f}%\n"
-				f"سود خالص={net_profit:.2f} | سود ناخالص={res['gross_profit_usdt']:.2f} | ضرر ناخالص={res['gross_loss_usdt']:.2f} | کارمزدها={res['fees_total']:.2f}\n"
-				f"سرمایه درگیر شده={res['engaged_usdt_max']:.2f} | ارزش نهایی={res['final_equity']:.2f}"
+				f"🧪 بک‌تست ({scope})\n"
+				f"↗️ ورودها={res['entries']} | ↘️ خروج‌ها={res['exits']} | 🟢 بردها={res['wins']} | 🔴 باخت‌ها={res['losers']} | ⛔ بستن اجباری={res['forced_exits']} | 🎯 نرخ برد={res['win_rate']:.2f}%\n"
+				f"💚 سود خالص={net_profit:.2f} | 📈 سود ناخالص={res['gross_profit_usdt']:.2f} | 📉 ضرر ناخالص={res['gross_loss_usdt']:.2f} | 💸 کارمزدها={res['fees_total']:.2f}\n"
+				f"💳 سرمایه درگیر شده={res['engaged_usdt_max']:.2f} | 💼 ارزش نهایی={res['final_equity']:.2f}"
 			)
 		except Exception as e:
 			await message.answer(f"خطا بک‌تست: {e}")
@@ -845,7 +846,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			await message.answer("Service not available")
 			# ادامه با موتور لایو ساده
 		try:
-			await message.answer("در حال روشن کردن…")
+			await message.answer("⚙️ در حال روشن کردن…")
 			async def run():
 				try:
 					# stop old service if running
@@ -902,8 +903,8 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 	async def cb_grid_on(query: CallbackQuery):
 		if grid_service is None:
 			await query.answer("Service not available", show_alert=False)
-		await query.answer("در حال روشن کردن…")
-		await query.message.answer("در حال روشن کردن…")
+		await query.answer("⚙️ در حال روشن کردن…")
+		await query.message.answer("⚙️ در حال روشن کردن…")
 		async def run():
 			try:
 				try:
@@ -963,7 +964,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			await engine.stop()
 		except Exception:
 			pass
-		await message.answer("گرید متوقف شد")
+		await message.answer("⏹ گرید متوقف شد")
 
 	@dp.message(Command("grid_levels"))
 	async def cmd_grid_levels(message: Message):
