@@ -659,101 +659,101 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
             await query.message.answer(f"خطا: {e}")
         await query.answer()
 
-	# Aliases for older inline buttons to ensure backward compatibility
-	@dp.callback_query(F.data == "grid:off")
-	async def cb_grid_off_alias(query: CallbackQuery):
-		await query.answer("در حال خاموش کردن…")
-		try:
-			await grid_service.stop()  # type: ignore[union-attr]
-		except Exception:
-			pass
-		try:
-			await engine.stop()
-		except Exception:
-			pass
-		try:
-			await query.message.edit_text("گرید متوقف شد ✅")
-		except Exception:
-			await query.message.answer("گرید متوقف شد ✅")
+    # Aliases for older inline buttons to ensure backward compatibility
+    @dp.callback_query(F.data == "grid:off")
+    async def cb_grid_off_alias(query: CallbackQuery):
+        await query.answer("در حال خاموش کردن…")
+        try:
+            await grid_service.stop()  # type: ignore[union-attr]
+        except Exception:
+            pass
+        try:
+            await engine.stop()
+        except Exception:
+            pass
+        try:
+            await query.message.edit_text("گرید متوقف شد ✅")
+        except Exception:
+            await query.message.answer("گرید متوقف شد ✅")
 
-	@dp.callback_query(F.data == "grid:levels")
-	async def cb_grid_levels_alias(query: CallbackQuery):
-		try:
-			await query.message.answer(engine.levels_text())
-		except Exception as e:
-			await query.message.answer(f"خطا: {e}")
-		await query.answer()
+    @dp.callback_query(F.data == "grid:levels")
+    async def cb_grid_levels_alias(query: CallbackQuery):
+        try:
+            await query.message.answer(engine.levels_text())
+        except Exception as e:
+            await query.message.answer(f"خطا: {e}")
+        await query.answer()
 
-	@dp.callback_query(F.data == "grid:on")
-	async def cb_grid_on_alias(query: CallbackQuery):
-		await query.answer("در حال روشن کردن…")
-		async def run():
-			try:
-				try:
-					await grid_service.stop()  # type: ignore[union-attr]
-				except Exception:
-					pass
-				info = await engine.start(query.message.chat.id, grids_n=6, step_p=0.005, tp_p=0.01, sl_p=0.01, amount=max(5.0, exec_gateway.usdt_balance * 0.001) if hasattr(exec_gateway, 'usdt_balance') else 50.0)
-				kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="نمایش داشبورد", callback_data="show_dashboard")]])
-				await query.message.answer(
-					f"گرید روشن شد ✅ (حالت ثابت)\nمرکز={info['center']:.4f} | خطوط={info['grids_total']} | گام={info['step_pct']*100:.2f}% | TP/SL={info['tp_pct']*100:.2f}%/{info['sl_pct']*100:.2f}%",
-					reply_markup=kb,
-				)
-			except Exception as e:
-				await query.message.answer(f"❌ خطا در روشن‌کردن گرید: {e}")
-		asyncio.create_task(run())
+    @dp.callback_query(F.data == "grid:on")
+    async def cb_grid_on_alias(query: CallbackQuery):
+        await query.answer("در حال روشن کردن…")
+        async def run():
+            try:
+                try:
+                    await grid_service.stop()  # type: ignore[union-attr]
+                except Exception:
+                    pass
+                info = await engine.start(query.message.chat.id, grids_n=6, step_p=0.005, tp_p=0.01, sl_p=0.01, amount=max(5.0, exec_gateway.usdt_balance * 0.001) if hasattr(exec_gateway, 'usdt_balance') else 50.0)
+                kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="نمایش داشبورد", callback_data="show_dashboard")]])
+                await query.message.answer(
+                    f"گرید روشن شد ✅ (حالت ثابت)\nمرکز={info['center']:.4f} | خطوط={info['grids_total']} | گام={info['step_pct']*100:.2f}% | TP/SL={info['tp_pct']*100:.2f}%/{info['sl_pct']*100:.2f}%",
+                    reply_markup=kb,
+                )
+            except Exception as e:
+                await query.message.answer(f"❌ خطا در روشن‌کردن گرید: {e}")
+        asyncio.create_task(run())
 
-	def _mask(v: str) -> str:
-		v = v or ""
-		if len(v) <= 4:
-			return "*" * len(v)
-		return v[:2] + "*" * max(0, len(v) - 4) + v[-2:]
+    def _mask(v: str) -> str:
+        v = v or ""
+        if len(v) <= 4:
+            return "*" * len(v)
+        return v[:2] + "*" * max(0, len(v) - 4) + v[-2:]
 
-	@dp.callback_query(F.data.startswith("api:"))
-	async def cb_api(query: CallbackQuery):
-		parts = query.data.split(":")
-		action = parts[1] if len(parts) > 1 else "open"
-		if action == "open":
-			cfg = await repo.get_settings()
-			ak = _mask(cfg.get("coinex_api_key", ""))
-			sk = _mask(cfg.get("coinex_api_secret", ""))
-			kb = InlineKeyboardMarkup(inline_keyboard=[
-				[InlineKeyboardButton(text="ثبت API Key", callback_data="api:set_key"), InlineKeyboardButton(text="ثبت API Secret", callback_data="api:set_secret")],
-				[InlineKeyboardButton(text="حذف کلیدها", callback_data="api:clear")],
-			])
-			await query.message.answer(f"کلیدهای فعلی:\nAPI Key: {ak or '-'}\nAPI Secret: {sk or '-'}\n\nبرای ثبت، روی دکمه‌ها بزنید.", reply_markup=kb)
-			await query.answer()
-			return
-		if action in ("set_key", "set_secret"):
-			uid = query.from_user.id if query.from_user else 0
-			pending_actions[uid] = action
-			prompt = "API Key را بفرستید (متن)" if action == "set_key" else "API Secret را بفرستید (متن)"
-			await query.message.answer(prompt)
-			await query.answer()
-			return
-		if action == "clear":
-			await repo.update_settings({"coinex_api_key": "", "coinex_api_secret": ""})
-			await query.message.answer("کلیدها حذف شد.")
-			await query.answer()
-			return
+    @dp.callback_query(F.data.startswith("api:"))
+    async def cb_api(query: CallbackQuery):
+        parts = query.data.split(":")
+        action = parts[1] if len(parts) > 1 else "open"
+        if action == "open":
+            cfg = await repo.get_settings()
+            ak = _mask(cfg.get("coinex_api_key", ""))
+            sk = _mask(cfg.get("coinex_api_secret", ""))
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="ثبت API Key", callback_data="api:set_key"), InlineKeyboardButton(text="ثبت API Secret", callback_data="api:set_secret")],
+                [InlineKeyboardButton(text="حذف کلیدها", callback_data="api:clear")],
+            ])
+            await query.message.answer(f"کلیدهای فعلی:\nAPI Key: {ak or '-'}\nAPI Secret: {sk or '-'}\n\nبرای ثبت، روی دکمه‌ها بزنید.", reply_markup=kb)
+            await query.answer()
+            return
+        if action in ("set_key", "set_secret"):
+            uid = query.from_user.id if query.from_user else 0
+            pending_actions[uid] = action
+            prompt = "API Key را بفرستید (متن)" if action == "set_key" else "API Secret را بفرستید (متن)"
+            await query.message.answer(prompt)
+            await query.answer()
+            return
+        if action == "clear":
+            await repo.update_settings({"coinex_api_key": "", "coinex_api_secret": ""})
+            await query.message.answer("کلیدها حذف شد.")
+            await query.answer()
+            return
 
-	@dp.message(F.text)
-	async def maybe_api_input(message: Message):
-		uid = message.from_user.id if message.from_user else None
-		if uid is None:
-			return
-		action = pending_actions.get(uid)
-		if action not in ("set_key", "set_secret"):
-			return
-		val = message.text.strip()
-		if not val:
-			await message.answer("ورودی خالی است")
-			return
-		if action == "set_key":
-			await repo.update_settings({"coinex_api_key": val})
-			await message.answer("API Key ذخیره شد")
-		else:
-			await repo.update_settings({"coinex_api_secret": val})
-			await message.answer("API Secret ذخیره شد")
-		pending_actions.pop(uid, None)
+    @dp.message(F.text)
+    async def maybe_api_input(message: Message):
+        uid = message.from_user.id if message.from_user else None
+        if uid is None:
+            return
+        action = pending_actions.get(uid)
+        if action not in ("set_key", "set_secret"):
+            return
+        val = message.text.strip()
+        if not val:
+            await message.answer("ورودی خالی است")
+            return
+        if action == "set_key":
+            await repo.update_settings({"coinex_api_key": val})
+            await message.answer("API Key ذخیره شد")
+        else:
+            await repo.update_settings({"coinex_api_secret": val})
+            await message.answer("API Secret ذخیره شد")
+        pending_actions.pop(uid, None)
 
