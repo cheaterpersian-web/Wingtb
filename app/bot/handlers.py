@@ -940,6 +940,8 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 		if action in ("set_key", "set_secret"):
 			uid = query.from_user.id if query.from_user else 0
 			pending_actions[uid] = action
+			# also map by chat id to handle private/group chats consistently
+			pending_actions[query.message.chat.id] = action
 			prompt = "API Key را بفرستید (متن)" if action == "set_key" else "API Secret را بفرستید (متن)"
 			await query.message.answer(prompt)
 			await query.answer()
@@ -950,12 +952,30 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			await query.answer()
 			return
 
+	@dp.message(Command("set_api_key"))
+	async def cmd_set_api_key(message: Message):
+		parts = message.text.split(maxsplit=1)
+		if len(parts) < 2 or not parts[1].strip():
+			await message.answer("نحوه استفاده: /set_api_key YOUR_ACCESS_ID")
+			return
+		await repo.update_settings({"coinex_api_key": parts[1].strip()})
+		await message.answer("API Key ذخیره شد")
+
+	@dp.message(Command("set_api_secret"))
+	async def cmd_set_api_secret(message: Message):
+		parts = message.text.split(maxsplit=1)
+		if len(parts) < 2 or not parts[1].strip():
+			await message.answer("نحوه استفاده: /set_api_secret YOUR_SECRET_KEY")
+			return
+		await repo.update_settings({"coinex_api_secret": parts[1].strip()})
+		await message.answer("API Secret ذخیره شد")
+
 	@dp.message(F.text)
 	async def maybe_api_input(message: Message):
 		uid = message.from_user.id if message.from_user else None
 		if uid is None:
 			return
-		action = pending_actions.get(uid)
+		action = pending_actions.get(uid) or pending_actions.get(message.chat.id)
 		if action not in ("set_key", "set_secret"):
 			return
 		val = message.text.strip()
@@ -969,4 +989,5 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			await repo.update_settings({"coinex_api_secret": val})
 			await message.answer("API Secret ذخیره شد")
 		pending_actions.pop(uid, None)
+		pending_actions.pop(message.chat.id, None)
 
