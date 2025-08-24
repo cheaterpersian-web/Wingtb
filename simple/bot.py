@@ -13,6 +13,8 @@ from aiogram.filters import Command
 from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from dotenv import load_dotenv
 from app.datafeed.coinex_rest import CoinExREST
+from simple.live_grid import LiveGridEngine
+from simple.backtest import run_grid_backtest
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -366,26 +368,15 @@ async def main() -> None:
 			[InlineKeyboardButton(text="شروع ▶️", callback_data="edit:start"), InlineKeyboardButton(text="انصراف ❌", callback_data="edit:cancel")],
 		])
 
+	engine = LiveGridEngine(get_price=cx.price, paper=paper, notify=bot.send_message)
+	engine.set_market(market)
+
 	async def start_grid(grids_n: int, step_p: float, tp_p: float, sl_p: float, amt: float, chat_id: int):
-		if running["on"]:
+		if engine.is_running():
 			await bot.send_message(chat_id, "در حال اجرا است")
 			return
-		# clamp params
-		grids_n = max(10, min(30, grids_n))
-		step_p = max(0.003, min(0.01, step_p))
-		tp_p = max(0.003, min(0.02, tp_p))
-		sl_p = max(0.005, min(0.03, sl_p))
-		center = await cx.price(market)
-		await paper.on_price(center)
-		step_abs = center * step_p
-		lb = center - step_abs * grids_n
-		ub = center + step_abs * grids_n
-		lines = [lb + i * step_abs for i in range(grids_n * 2 + 1)]
-		occupied = {f"{ln:.8f}": False for ln in lines}
-		live["grid"] = {"lb": lb, "ub": ub, "lines": lines, "tp_pct": tp_p, "sl_pct": sl_p, "amount": amt, "open_lots": [], "occupied": occupied, "prev_px": center}
-		running["on"] = True
-		asyncio.create_task(loop_prices(chat_id))
-		await bot.send_message(chat_id, f"گرید روشن شد (۱۵ دقیقه) | مرکز={center:.8f} | گریدها={grids_n*2+1} | گام={step_p*100:.2f}% | حدسود={tp_p*100:.2f}% | حدضرر={sl_p*100:.2f}% | مبلغ={amt:.2f}\nدر حال اجرا…")
+		info = await engine.start(chat_id, grids_n, step_p, tp_p, sl_p, amt)
+		await bot.send_message(chat_id, f"گرید روشن شد (۱۵ دقیقه) | مرکز={info['center']:.8f} | گریدها={info['grids_total']} | گام={info['step_pct']*100:.2f}% | حدسود={info['tp_pct']*100:.2f}% | حدضرر={info['sl_pct']*100:.2f}% | مبلغ={info['amount']:.2f}\nدر حال اجرا…")
 
 	@dp.callback_query(F.data == "grid:on")
 	async def cb_grid_on(q: CallbackQuery):
@@ -394,21 +385,13 @@ async def main() -> None:
 
 	@dp.callback_query(F.data == "grid:off")
 	async def cb_grid_off(q: CallbackQuery):
-		running["on"] = False
-		live["grid"] = None
+		await engine.stop()
 		await bot.send_message(q.message.chat.id, "متوقف شد.")
 		await q.answer("گرید خاموش شد")
 
 	@dp.callback_query(F.data == "grid:levels")
 	async def cb_grid_levels(q: CallbackQuery):
-		g = live.get("grid")
-		if not g:
-			await bot.send_message(q.message.chat.id, "گرید خاموش است. از /grid_on استفاده کنید")
-		else:
-			lines = g["lines"]
-			text = f"کف={g['lb']:.8f} | سقف={g['ub']:.8f} | تعداد خطوط={len(lines)} | حدسود={g['tp_pct']*100:.2f}% | حدضرر={g['sl_pct']*100:.2f}%\n"
-			text += "خطوط:\n" + "\n".join(f"{lv:.8f}" for lv in lines[:min(len(lines), 30)])
-			await bot.send_message(q.message.chat.id, text)
+		await bot.send_message(q.message.chat.id, engine.levels_text())
 		await q.answer()
 
 	@dp.callback_query(F.data.startswith("amt:"))
@@ -478,11 +461,11 @@ async def main() -> None:
 				except Exception:
 					await q.answer("نماد نامعتبر یا در دسترس نیست", show_alert=True)
 					return
-				if running.get("on"):
-					running["on"] = False
-					live["grid"] = None
+				if engine.is_running():
+					await engine.stop()
 					await bot.send_message(q.message.chat.id, "گرید متوقف شد به‌خاطر تغییر نماد.")
 				market = sym
+				engine.set_market(sym)
 				anchor_px = px
 				await paper.on_price(px)
 				await q.message.edit_text(f"نماد به {market} تغییر کرد. قیمت فعلی={px:.8f}\nبرای شروع، «روشن کردن گرید ▶️» را بزنید.")
@@ -538,79 +521,13 @@ async def main() -> None:
 		except Exception as e:
 			await message.answer(f"خطا: {e}")
 
-	running = {"on": False}
-	live = {"grid": None}  # {lb, ub, lines, tp_pct, sl_pct, amount, open_lots, prev_px}
 	editor: Dict[int, Dict[str, float | int]] = {}
 
-	async def loop_prices(chat_id: int):
-		while running["on"]:
-			try:
-				p = await cx.price(market)
-				await paper.on_price(p)
-				logger.info("price updated: %.8f", p)
-				# Live grid execution
-				if live["grid"]:
-					g = live["grid"]
-					prev_px = g.get("prev_px", p)
-					lines = g["lines"]
-					amount = g["amount"]
-					tp_pct = g["tp_pct"]
-					sl_pct = g["sl_pct"]
-					# 1) Process TP/SL on open lots
-					new_open = []
-					for lot in g["open_lots"]:
-						# SL first
-						if p <= lot.get("sl", 0.0):
-							# execute sell
-							qty = lot["qty"]
-							_ = await paper.sell(market, qty)
-							await bot.send_message(chat_id, f"🔻 فروش با استاپ‌لاس {market} | مقدار={qty:.8f} | قیمت={p:.8f}")
-							lk = lot.get("line_key")
-							if lk is not None:
-								g["occupied"][lk] = False
-							continue
-						if p >= lot["tp"]:
-							qty = lot["qty"]
-							_ = await paper.sell(market, qty)
-							await bot.send_message(chat_id, f"✅ فروش با تارگت {market} | مقدار={qty:.8f} | قیمت={p:.8f}")
-							lk = lot.get("line_key")
-							if lk is not None:
-								g["occupied"][lk] = False
-							continue
-						new_open.append(lot)
-					g["open_lots"] = new_open
-					# 2) Detect downward crosses and buy (limit fills)
-					if paper.usdt > amount and g["lb"] <= p <= g["ub"]:
-						for line in lines:
-							if p <= line < prev_px:
-								lk = f"{line:.8f}"
-								if g["occupied"].get(lk):
-									continue
-								buy_amount = min(amount, paper.usdt)
-								if buy_amount <= 0:
-									break
-								_ = await paper.buy(market, buy_amount)
-								qty = buy_amount / max(p, 1e-9)
-								g["open_lots"].append({
-									"qty": qty,
-									"entry": p,
-									"cost": buy_amount + (buy_amount * (paper.fee_bps / 10000.0)),
-									"tp": p * (1.0 + tp_pct),
-									"sl": p * (1.0 - sl_pct),
-									"line_key": lk,
-								})
-								g["occupied"][lk] = True
-								await bot.send_message(chat_id, f"🟢 خرید {market} | مبلغ={buy_amount:.2f} | مقدار={qty:.8f} | قیمت={p:.8f} | حدسود={p*(1+tp_pct):.8f} | حدضرر={p*(1-sl_pct):.8f}")
-								# continue checking deeper lines
-					g["prev_px"] = p
-				await asyncio.sleep(2)
-			except Exception as e:
-				logger.warning("price loop error: %s", e)
-				await asyncio.sleep(2)
+	# removed local loop; handled by LiveGridEngine
 
 	@dp.message(Command("grid_on"))
 	async def grid_on(message: Message):
-		if running["on"]:
+		if engine.is_running():
 			await message.answer("در حال اجرا است")
 			return
 		nonlocal anchor_px
@@ -623,39 +540,17 @@ async def main() -> None:
 		tp_p = float(parts[3]) if len(parts) > 3 else 0.01
 		sl_p = float(parts[4]) if len(parts) > 4 else 0.01
 		amt = float(parts[5]) if len(parts) > 5 else base_amount_usdt
-		# clamp params
-		grids_n = max(10, min(30, grids_n))
-		step_p = max(0.003, min(0.01, step_p))
-		tp_p = max(0.003, min(0.02, tp_p))
-		sl_p = max(0.005, min(0.03, sl_p))
-		# build symmetric grid around center with 15m context
-		center = anchor_px
-		step_abs = center * step_p
-		lb = center - step_abs * grids_n
-		ub = center + step_abs * grids_n
-		lines = [lb + i * step_abs for i in range(grids_n * 2 + 1)]
-		occupied = {f"{ln:.8f}": False for ln in lines}
-		live["grid"] = {"lb": lb, "ub": ub, "lines": lines, "tp_pct": tp_p, "sl_pct": sl_p, "amount": amt, "open_lots": [], "occupied": occupied, "prev_px": center}
-		running["on"] = True
-		asyncio.create_task(loop_prices(message.chat.id))
-		await message.answer(f"گرید روشن شد (۱۵ دقیقه) | مرکز={center:.8f} | گریدها={grids_n*2+1} | گام={step_p*100:.2f}% | حدسود={tp_p*100:.2f}% | حدضرر={sl_p*100:.2f}% | مبلغ={amt:.2f}\nدر حال اجرا…")
+		info = await engine.start(message.chat.id, grids_n, step_p, tp_p, sl_p, amt)
+		await message.answer(f"گرید روشن شد (۱۵ دقیقه) | مرکز={info['center']:.8f} | گریدها={info['grids_total']} | گام={info['step_pct']*100:.2f}% | حدسود={info['tp_pct']*100:.2f}% | حدضرر={info['sl_pct']*100:.2f}% | مبلغ={info['amount']:.2f}\nدر حال اجرا…")
 
 	@dp.message(Command("grid_off"))
 	async def grid_off(message: Message):
-		running["on"] = False
-		live["grid"] = None
+		await engine.stop()
 		await message.answer("متوقف شد.")
 
 	@dp.message(Command("grid_levels"))
 	async def grid_levels(message: Message):
-		g = live.get("grid")
-		if not g:
-			await message.answer("گرید خاموش است. از /grid_on استفاده کنید")
-			return
-		lines = g["lines"]
-		text = f"کف={g['lb']:.8f} | سقف={g['ub']:.8f} | تعداد خطوط={len(lines)} | حدسود={g['tp_pct']*100:.2f}% | حدضرر={g['sl_pct']*100:.2f}%\n"
-		text += "خطوط:\n" + "\n".join(f"{lv:.8f}" for lv in lines[:min(len(lines), 30)])
-		await message.answer(text)
+		await message.answer(engine.levels_text())
 
 	@dp.message(Command("backtest"))
 	async def backtest(message: Message):
@@ -705,10 +600,8 @@ async def main() -> None:
 			if not closes:
 				await message.answer("خطا بک‌تست: قیمت‌های پایانی استخراج نشد")
 				return
-			# Only grid mode supported now (default to grid if not specified)
 			if not mode_grid:
 				mode_grid = True
-			# Grid parameters from args: /backtest grid <scope> [lower upper grids tp_pct base]
 			last_px = closes[-1]
 			def _get(idx: int, cast):
 				try:
@@ -721,68 +614,14 @@ async def main() -> None:
 			grids_n = int(_get(arg_start + 2, int) or 20)
 			tp_pct = (_get(arg_start + 3, float) or 1.0) / 100.0
 			amount_usdt = float(_get(arg_start + 4, float) or base_amount_usdt)
-			if ub <= lb:
-				lb, ub = min(lb, ub), max(lb, ub)
-			step = (ub - lb) / max(grids_n, 1)
-			grid_lines = [lb + i * step for i in range(grids_n + 1)]
-			cutoff_bars = max(5, int(0.02 * len(closes)))
-			usdt = 10000.0
-			fee_bps = 10.0
-			open_lots: List[Dict[str, float]] = []
-			wins = losers = entries = exits = 0
-			forced_exits = 0
-			profit_usdt = loss_usdt = 0.0
-			for i in range(1, len(closes)):
-				prev_px = closes[i - 1]
-				px = closes[i]
-				# process TP sells
-				new_open: List[Dict[str, float]] = []
-				for lot in open_lots:
-					if px >= lot["tp"]:
-						notional = lot["qty"] * px
-						fee = notional * (fee_bps / 10000.0)
-						proceeds = notional - fee
-						realized = proceeds - lot["cost"]
-						usdt += proceeds
-						exits += 1
-						if realized > 0:
-							wins += 1
-							profit_usdt += realized
-						else:
-							losers += 1
-							loss_usdt += (-realized)
-					else:
-						new_open.append(lot)
-				open_lots = new_open
-				# detect downward crosses of grid lines and buy (avoid buys near the very end)
-				if usdt > amount_usdt and lb <= px <= ub and i < len(closes) - cutoff_bars:
-					for line in grid_lines:
-						if px <= line < prev_px:
-							amount = min(amount_usdt, usdt)
-							if amount <= 0:
-								break
-							qty = amount / max(px, 1e-9)
-							fee_in = amount * (fee_bps / 10000.0)
-							cost = amount + fee_in
-							usdt -= cost
-							open_lots.append({"qty": qty, "entry": px, "cost": cost, "tp": px * (1.0 + tp_pct)})
-							entries += 1
-							# continue checking lower lines too in same bar
-			# finalize: liquidate remaining at last price (don't count in wins/losers)
-			final_px = closes[-1]
-			for lot in open_lots:
-				notional = lot["qty"] * final_px
-				fee = notional * (fee_bps / 10000.0)
-				proceeds = notional - fee
-				realized = proceeds - lot["cost"]
-				usdt += proceeds
-				exits += 1
-				forced_exits += 1
-			win_rate = (wins / exits * 100.0) if exits else 0.0
+			res = run_grid_backtest(closes, lb, ub, grids_n, tp_pct, amount_usdt)
+			if res.get("error"):
+				await message.answer(f"خطا بک‌تست: {res['error']}")
+				return
 			await message.answer(
 				f"بک‌تست ({scope})\n"
-				f"ورودها={entries} | خروج‌ها={exits} | بردها={wins} | باخت‌ها={losers} | بستن اجباری={forced_exits} | نرخ برد={win_rate:.2f}%\n"
-				f"سود={profit_usdt:.2f} | ضرر={loss_usdt:.2f} | ارزش نهایی={usdt:.2f}"
+				f"ورودها={res['entries']} | خروج‌ها={res['exits']} | بردها={res['wins']} | باخت‌ها={res['losers']} | بستن اجباری={res['forced_exits']} | نرخ برد={res['win_rate']:.2f}%\n"
+				f"سود={res['profit_usdt']:.2f} | ضرر={res['loss_usdt']:.2f} | ارزش نهایی={res['final_equity']:.2f}"
 			)
 			return
 		except Exception as e:
@@ -967,11 +806,11 @@ async def main() -> None:
 		except Exception:
 			await message.answer("نماد نامعتبر یا در دسترس نیست")
 			return
-		if running.get("on"):
-			running["on"] = False
-			live["grid"] = None
+		if engine.is_running():
+			await engine.stop()
 			await message.answer("گرید متوقف شد به‌خاطر تغییر نماد.")
 		market = sym
+		engine.set_market(sym)
 		anchor_px = px
 		await paper.on_price(px)
 		await message.answer(f"نماد به {market} تغییر کرد. قیمت فعلی={px:.8f}")
