@@ -1057,3 +1057,32 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 		pending_actions.pop(uid, None)
 		pending_actions.pop(message.chat.id, None)
 
+	@dp.callback_query(F.data.startswith("env:"))
+	async def cb_env(query: CallbackQuery):
+		parts = query.data.split(":")
+		action = parts[1] if len(parts) > 1 else "open"
+		if action == "open":
+			envs = _env_read_all()
+			ak = envs.get("COINEX_ACCESS_ID", "")
+			sk = envs.get("COINEX_SECRET_KEY", "")
+			def _mask(v: str) -> str:
+				return (v[:2] + "*" * max(0, len(v) - 4) + v[-2:]) if v else "-"
+			kb = InlineKeyboardMarkup(inline_keyboard=[
+				[InlineKeyboardButton(text="ثبت API Key (.env)", callback_data="env:set_key"), InlineKeyboardButton(text="ثبت API Secret (.env)", callback_data="env:set_secret")],
+				[InlineKeyboardButton(text="حذف کلیدها (.env)", callback_data="env:clear")],
+			])
+			await query.message.answer(f"وضعیت .env:\nCOINEX_ACCESS_ID: {_mask(ak)}\nCOINEX_SECRET_KEY: {_mask(sk)}\n\nبرای ثبت، روی دکمه‌ها بزنید.", reply_markup=kb)
+			await query.answer()
+			return
+		if action in ("set_key", "set_secret"):
+			pending_actions[query.from_user.id if query.from_user else query.message.chat.id] = f"env_{action}"
+			await query.message.answer("مقدار را ارسال کنید:")
+			await query.answer()
+			return
+		if action == "clear":
+			_env_write_var("COINEX_ACCESS_ID", "")
+			_env_write_var("COINEX_SECRET_KEY", "")
+			await query.message.answer("کلیدهای .env حذف شد.")
+			await query.answer()
+			return
+
