@@ -72,6 +72,9 @@ class LiveGridEngine:
 		}
 		self._running = True
 		self._task = asyncio.create_task(self._loop(chat_id))
+		# Immediate start notification
+		with contextlib.suppress(Exception):
+			await self._notify(chat_id, f"🚀 گرید شروع شد برای {self._market} | مرکز={center:.6f} | خطوط={len(lines)}")
 		self._log.info("grid started: market=%s center=%.6f lines=%d step_pct=%.4f tp_pct=%.4f sl_pct=%.4f amount=%.2f", self._market, center, len(lines), step_p, tp_p, sl_p, amount)
 		return {
 			"center": center,
@@ -96,7 +99,7 @@ class LiveGridEngine:
 	def levels_text(self, max_lines: int = 30) -> str:
 		g = self._grid
 		if not g:
-			return "گرید خاموش است. از /grid_on استفاده کنید"
+			return "گرید خاموش است. از منوی اصلی دکمه ‘روشن کردن گرید ▶️’ را بزنید."
 		lines = g["lines"]
 		text = (
 			f"کف={g['lb']:.8f} | سقف={g['ub']:.8f} | تعداد خطوط={len(lines)} | حدسود={g['tp_pct']*100:.2f}% | حدضرر={g['sl_pct']*100:.2f}%\n"

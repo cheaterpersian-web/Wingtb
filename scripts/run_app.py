@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from app.core.storage.db import SQLiteRepo
 from app.execution.paper_exec import PaperExecutionGateway
 from app.execution.real_exec_stub import RealExecutionGateway
+from app.execution.coinex_exec import CoinExExecutionGateway
 from app.execution.execution_router import ExecutionRouter
 from app.bot.handlers import setup_handlers
 
@@ -33,7 +34,11 @@ async def main() -> None:
 	repo = SQLiteRepo()
 	repo.connect()
 	paper = PaperExecutionGateway(repo, start_balance, fee_bps, slippage_bps)
-	real = RealExecutionGateway(repo, fee_bps)
+	# Prefer real CoinEx gateway; fall back to stub if env keys missing
+	try:
+		real = CoinExExecutionGateway(repo, fee_bps_fallback=fee_bps)
+	except Exception:
+		real = RealExecutionGateway(repo, fee_bps)
 	exec_gateway = ExecutionRouter(paper, real)
 
 	bot = Bot(token)

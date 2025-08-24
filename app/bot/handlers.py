@@ -81,7 +81,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			[InlineKeyboardButton(text="وزن پایین +0.1", callback_data="edit:wb:+0.1"), InlineKeyboardButton(text="وزن پایین -0.1", callback_data="edit:wb:-0.1")],
 			[InlineKeyboardButton(text="وزن بالا +0.1", callback_data="edit:wt:+0.1"), InlineKeyboardButton(text="وزن بالا -0.1", callback_data="edit:wt:-0.1")],
 			[InlineKeyboardButton(text=("گام داینامیک: روشن" if p.get("dyn_step", 0) else "گام داینامیک: خاموش"), callback_data="edit:dyn:toggle")],
-			[InlineKeyboardButton(text="شروع ▶️", callback_data="edit:start"), InlineKeyboardButton(text="انصراف ❌", callback_data="edit:cancel")],
+			[InlineKeyboardButton(text="انصراف ❌", callback_data="edit:cancel")],
 		])
 
 	@dp.callback_query(F.data.startswith("preset:"))
@@ -105,45 +105,9 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 		cmd = query.data
 		try:
 			if cmd == "edit:start":
-				# dynamic step via ATR-like heuristic using closes
-				try:
-					if int(p.get("dyn_step", 0)) == 1:
-						feed_local = CoinExDataFeed()
-						cand = await feed_local.get_klines(market, "15min", 96)
-						cl = []
-						for c in cand or []:
-							v = None
-							if isinstance(c, dict):
-								v = c.get("close") or c.get("c") or c.get("last") or c.get("price")
-							elif isinstance(c, (list, tuple)) and len(c) >= 3:
-								v = c[2]
-							if v is not None:
-								cl.append(float(v))
-						if len(cl) >= 14:
-							chg = [abs(cl[i] - cl[i-1]) for i in range(1, len(cl))]
-							vol = sum(chg[-14:]) / max(14, len(chg))
-							ref = sum(cl[-14:]) / 14.0
-							rat = (vol / ref) if ref > 0 else 0.0
-							p["step"] = 0.01 if rat > 0.008 else 0.005
-							editor[query.message.chat.id] = p
-							cfg_cur = await repo.get_settings()
-							cur = cfg_cur.get("preset") or {}
-							cur.update(p)
-							await repo.update_settings({"preset": cur})
-				except Exception:
-					pass
-				info = await engine.start(query.message.chat.id, int(p["grids"]), float(p["step"]), float(p["tp"]), float(p["sl"]), float(p["amount"]))
-				# persist when starting too (finalize preset)
-				cfg_cur2 = await repo.get_settings()
-				cur2 = cfg_cur2.get("preset") or {}
-				cur2.update(p)
-				await repo.update_settings({"preset": cur2})
-				editor.pop(query.message.chat.id, None)
-				await query.message.answer(
-					f"گرید روشن شد (۱۵ دقیقه) | مرکز={info['center']:.8f} | گریدها={info['grids_total']} | گام={info['step_pct']*100:.2f}% | حدسود={info['tp_pct']*100:.2f}% | حدضرر={info['sl_pct']*100:.2f}% | مبلغ={info['amount']:.2f}"
-				)
-				await query.answer("گرید شروع شد")
+				await query.answer("برای شروع، از منوی اصلی دکمه ‘روشن کردن گرید ▶️’ را بزنید.", show_alert=True)
 				return
+				# قبلاً این مسیر گرید را شروع می‌کرد؛ اکنون غیر فعال است تا شروع فقط از منوی اصلی باشد
 			if cmd == "edit:cancel":
 				editor.pop(query.message.chat.id, None)
 				await query.message.answer("ویرایش پریست لغو شد.")
@@ -263,7 +227,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 					except Exception:
 						pass
 				await exec_gateway.on_price(float(px))
-				await query.message.answer(f"نماد به {market} تغییر کرد. قیمت فعلی={float(px):.8f}\nبرای شروع، «روشن کردن گرید ▶️» را بزنید.")
+				await query.message.answer(f"نماد به {market} تغییر کرد. قیمت فعلی={float(px):.8f}\nبرای شروع، از منوی اصلی «روشن کردن گرید ▶️» را بزنید.")
 				await query.answer("نماد تنظیم شد")
 				return
 		except Exception:
@@ -1120,6 +1084,13 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 
 	@dp.callback_query(F.data == "grid:on")
 	async def cb_grid_on_alias(query: CallbackQuery):
+		# prevent double-start
+		try:
+			if engine.is_running():
+				await query.answer("گرید از قبل روشن است.", show_alert=True)
+				return
+		except Exception:
+			pass
 		await query.answer("⚙️ در حال روشن کردن…")
 		async def run():
 			try:

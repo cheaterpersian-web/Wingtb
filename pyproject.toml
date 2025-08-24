@@ -18,6 +18,7 @@ dependencies = [
   "pandas>=2.2",
   "APScheduler>=3.10",
   "uvloop>=0.19; platform_system == 'Linux'",
+  "ccxt>=4.3",
 ]
 
 [tool.black]
