@@ -44,7 +44,7 @@ class LiveGridEngine:
 		# clamp params
 		grids_n = max(10, min(30, grids_n))
 		step_p = max(0.003, min(0.01, step_p))
-		tp_p = max(0.003, min(0.02, tp_p))
+		tp_p = max(0.003, min(0.10, tp_p))
 		sl_p = max(0.005, min(0.03, sl_p))
 		center = await self._get_price(self._market)
 		await self._paper.on_price(center)

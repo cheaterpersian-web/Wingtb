@@ -56,7 +56,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 	def clamp_params(gr: int, st: float, tp: float, sl: float, amt: float):
 		gr = max(10, min(30, gr))
 		st = max(0.003, min(0.01, st))
-		tp = max(0.003, min(0.02, tp))
+		tp = max(0.003, min(0.10, tp))
 		sl = max(0.005, min(0.03, sl))
 		amt = max(1.0, amt)
 		return gr, st, tp, sl, amt
