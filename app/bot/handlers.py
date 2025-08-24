@@ -1030,8 +1030,43 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 
 	@dp.message(F.text)
 	async def maybe_api_input(message: Message):
-		# Do not handle slash-commands here; let Command handlers respond
-		if (message.text or "").strip().startswith("/"):
+		txt = (message.text or "").strip()
+		# Fallback: handle API commands here too, in case Command filter doesn't trigger (groups, mentions)
+		if txt.startswith("/"):
+			parts = txt.split()
+			cmd_token = parts[0]
+			cmd_root = cmd_token.split("@", 1)[0]
+			if cmd_root == "/set_api":
+				if len(parts) != 3:
+					await message.answer("نحوه استفاده: /set_api ACCESS_ID SECRET_KEY")
+					return
+				_, access, secret = parts
+				await repo.update_settings({"coinex_api_key": access.strip(), "coinex_api_secret": secret.strip()})
+				await message.answer("API Key/Secret ذخیره شد")
+				return
+			if cmd_root == "/apia":
+				if len(parts) < 2 or not parts[1].strip():
+					await message.answer("نحوه استفاده: /apia YOUR_ACCESS_ID")
+					return
+				await repo.update_settings({"coinex_api_key": parts[1].strip()})
+				await message.answer("API Key ذخیره شد")
+				return
+			if cmd_root == "/apis":
+				if len(parts) < 2 or not parts[1].strip():
+					await message.answer("نحوه استفاده: /apis YOUR_SECRET_KEY")
+					return
+				await repo.update_settings({"coinex_api_secret": parts[1].strip()})
+				await message.answer("API Secret ذخیره شد")
+				return
+			if cmd_root == "/status_api":
+				cfg = await repo.get_settings()
+				ak = (cfg.get("coinex_api_key") or "").strip()
+				sk = (cfg.get("coinex_api_secret") or "").strip()
+				def _m(v: str) -> str:
+					return (v[:2] + "*" * max(0, len(v) - 4) + v[-2:]) if v else "-"
+				await message.answer(f"API وضعیت:\nKey: {_m(ak)}\nSecret: {_m(sk)}")
+				return
+			# other slash-commands should pass through to their handlers
 			return
 		uid = message.from_user.id if message.from_user else None
 		if uid is None:
@@ -1053,7 +1088,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 				pending_actions.pop(uid, None)
 				pending_actions.pop(message.chat.id, None)
 			return
-		val = message.text.strip()
+		val = txt
 		if not val:
 			await message.answer("ورودی خالی است")
 			return
