@@ -132,7 +132,22 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 							await repo.update_settings({"preset": cur})
 				except Exception:
 					pass
-				info = await engine.start(query.message.chat.id, int(p["grids"]), float(p["step"]), float(p["tp"]), float(p["sl"]), float(p["amount"]))
+				cap = float(p.get("cap_usdt", 0.0)) or None
+				maxlots = int(p.get("max_open_lots", 0)) or None
+				wb = float(p.get("w_bottom", 1.0))
+				wt = float(p.get("w_top", 1.0))
+				info = await engine.start(
+					query.message.chat.id,
+					int(p["grids"]),
+					float(p["step"]),
+					float(p["tp"]),
+					float(p["sl"]),
+					float(p["amount"]),
+					cap_usdt=cap,
+					max_open_lots=maxlots,
+					w_bottom=wb,
+					w_top=wt,
+				)
 				# persist when starting too (finalize preset)
 				cfg_cur2 = await repo.get_settings()
 				cur2 = cfg_cur2.get("preset") or {}
@@ -263,7 +278,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 					except Exception:
 						pass
 				await exec_gateway.on_price(float(px))
-				await query.message.answer(f"نماد به {market} تغییر کرد. قیمت فعلی={float(px):.8f}\nبرای شروع، «روشن کردن گرید ▶️» را بزنید.")
+				await query.message.answer(f"نماد به {market} تغییر کرد. قیمت فعلی={float(px):.8f}\nبرای شروع، وارد پریست شوید و دکمه «شروع ▶️» را بزنید.")
 				await query.answer("نماد تنظیم شد")
 				return
 		except Exception:
@@ -316,7 +331,7 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 	async def cmd_start(message: Message):
 		kb = InlineKeyboardMarkup(inline_keyboard=[
 			[InlineKeyboardButton(text="وضعیت 💼", callback_data="menu:status"), InlineKeyboardButton(text="قیمت ⚡", callback_data="menu:price")],
-			[InlineKeyboardButton(text="روشن کردن گرید ▶️", callback_data="grid:on"), InlineKeyboardButton(text="خاموش کردن گرید ⏹", callback_data="grid:off")],
+			[InlineKeyboardButton(text="خاموش کردن گرید ⏹", callback_data="grid:off")],
 			[InlineKeyboardButton(text="سطوح گرید 📐", callback_data="grid:levels")],
 			[InlineKeyboardButton(text="انتخاب ارز 🎯", callback_data="pair:open:0")],
 			[InlineKeyboardButton(text="تنظیم API صرافی CoinEx 🔐", callback_data="env:open")],
