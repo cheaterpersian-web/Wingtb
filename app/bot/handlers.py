@@ -386,10 +386,12 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			if res.get("error"):
 				await message.answer(f"خطا بک‌تست: {res['error']}")
 				return
+			net_profit = res['final_equity'] - start_eq
 			await message.answer(
 				f"بک‌تست ({scope})\n"
 				f"ورودها={res['entries']} | خروج‌ها={res['exits']} | بردها={res['wins']} | باخت‌ها={res['losers']} | بستن اجباری={res['forced_exits']} | نرخ برد={res['win_rate']:.2f}%\n"
-				f"سود={res['profit_usdt']:.2f} | ضرر={res['loss_usdt']:.2f} | کارمزدها={res['fees_total']:.2f} | سرمایه درگیر شده={res['engaged_usdt_max']:.2f} | ارزش نهایی={res['final_equity']:.2f}"
+				f"سود={res['profit_usdt']:.2f} | ضرر={res['loss_usdt']:.2f} | کارمزدها={res['fees_total']:.2f} | سرمایه درگیر شده={res['engaged_usdt_max']:.2f} | ارزش نهایی={res['final_equity']:.2f}\n"
+				f"سود خالص (ارزش نهایی − سرمایه اولیه): {net_profit:.2f}"
 			)
 		except Exception as e:
 			await message.answer(f"خطا بک‌تست: {e}")
