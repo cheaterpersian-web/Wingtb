@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import os
 import time
+import importlib
 from dataclasses import dataclass
 from typing import Optional, Awaitable, Callable, Dict
-
-import ccxt.async_support as ccxt  # type: ignore
 
 from app.core.storage.db import SQLiteRepo, TradeRow, BalanceRow
 
@@ -41,13 +40,19 @@ class CoinExExecutionGateway:
 
         api_key = (os.getenv("COINEX_ACCESS_ID") or os.getenv("COINEX_API_KEY") or "").strip()
         api_secret = (os.getenv("COINEX_SECRET_KEY") or os.getenv("COINEX_API_SECRET") or "").strip()
-        self._ex = ccxt.coinex({
-            "apiKey": api_key,
-            "secret": api_secret,
-            "enableRateLimit": True,
-            # reduce ccxt warnings
-            "options": {"defaultType": "spot"},
-        })
+        # Lazy import ccxt to avoid hard import error when not installed
+        try:
+            mod = importlib.import_module("ccxt.async_support")
+            ctor = getattr(mod, "coinex")
+            self._ex = ctor({
+                "apiKey": api_key,
+                "secret": api_secret,
+                "enableRateLimit": True,
+                "options": {"defaultType": "spot"},
+            })
+        except Exception as e:
+            # Bubble up; scripts/run_app.py will catch and fall back to stub
+            raise RuntimeError(f"ccxt not available or failed to initialize: {e}")
 
     async def close(self) -> None:
         try:
