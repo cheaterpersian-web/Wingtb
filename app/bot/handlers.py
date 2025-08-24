@@ -12,6 +12,7 @@ from app.execution.paper_exec import PaperExecutionGateway
 from app.services.grid_service import GridService
 from app.services.grid_service import ServiceConfig
 from app.datafeed.coinex_datafeed import CoinExDataFeed
+from app.datafeed.coinex_private import CoinExPrivate
 from app.services.backtest_runner import run_fixed_grid_backtest
 from app.services.live_grid_engine import LiveGridEngine
 from pathlib import Path
@@ -377,7 +378,9 @@ def setup_handlers(dp: Dispatcher, repo: SQLiteRepo, exec_gateway: PaperExecutio
 			tp_pct = (_get(arg_start + 3, float) or 1.0) / 100.0
 			amount = float(_get(arg_start + 4, float) or base_amount_usdt)
 			# derive fee and start equity from current exec settings
-			fee_bps_cfg = getattr(exec_gateway, "fee_bps", 10.0)
+			priv = CoinExPrivate()
+			mk_bps, tk_bps = await priv.get_spot_fee_bps()
+			fee_bps_cfg = tk_bps or getattr(exec_gateway, "fee_bps", 10.0)
 			start_eq = 10000.0
 			res = run_fixed_grid_backtest(closes, lb, ub, grids, tp_pct, amount, fee_bps=fee_bps_cfg, start_usdt=start_eq)
 			if res.get("error"):
