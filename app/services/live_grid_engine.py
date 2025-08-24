@@ -110,7 +110,7 @@ class LiveGridEngine:
 					for lot in g["open_lots"]:
 						if p <= lot.get("sl", 0.0):
 							qty = lot["qty"]
-							_ = await self._paper.sell(self._market, qty)
+							_ = await self._paper.place_order(self._market, "SELL", qty, p)
 							await self._notify(chat_id, f"🔻 فروش با استاپ‌لاس {self._market} | مقدار={qty:.8f} | قیمت={p:.8f}")
 							lk = lot.get("line_key")
 							if lk is not None:
@@ -118,7 +118,7 @@ class LiveGridEngine:
 							continue
 						if p >= lot["tp"]:
 							qty = lot["qty"]
-							_ = await self._paper.sell(self._market, qty)
+							_ = await self._paper.place_order(self._market, "SELL", qty, p)
 							await self._notify(chat_id, f"✅ فروش با تارگت {self._market} | مقدار={qty:.8f} | قیمت={p:.8f}")
 							lk = lot.get("line_key")
 							if lk is not None:
